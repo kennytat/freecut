@@ -139,6 +139,10 @@ mod tests {
                 length: parse_length("24.5", Unit::Inch).expect("fixture parses"),
                 quantity: Some(2),
                 pattern: PatternDirection::ParallelToLength,
+                enabled: false,
+                offset_width: parse_length("1/2", Unit::Inch).expect("fixture parses"),
+                offset_length: 0,
+                required: true,
             }],
             cut_pieces: Vec::new(),
             settings: CutSettings {

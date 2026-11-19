@@ -254,7 +254,7 @@ fn sheet_layout_page_content(
         }
 
         for piece in &sheet.placed_pieces {
-            add_piece(&mut content, &transform, piece);
+            add_piece(&mut content, &transform, piece, unit);
         }
 
         add_kerf_geometries(&mut content, &transform, sheet, layout);
@@ -283,7 +283,7 @@ fn sheet_layout_page_content(
     content
 }
 
-fn add_piece(content: &mut String, transform: &SheetPdfTransform, piece: &PlacedPiece) {
+fn add_piece(content: &mut String, transform: &SheetPdfTransform, piece: &PlacedPiece, unit: Unit) {
     let rect = transform.rect_to_pdf(piece.rect);
     let fill = if piece.rotated {
         (0.70, 0.86, 1.0)
@@ -292,7 +292,24 @@ fn add_piece(content: &mut String, transform: &SheetPdfTransform, piece: &Placed
     };
     add_filled_rect(content, rect, fill, None, 0.0);
 
-    if rect.width >= 24.0 && rect.height >= 10.0 {
+    if rect.width >= 24.0 && rect.height >= 20.0 {
+        add_text(
+            content,
+            7.0,
+            rect.x + 3.0,
+            rect.y + rect.height / 2.0 + 1.5,
+            &piece_label(piece),
+            false,
+        );
+        add_text(
+            content,
+            7.0,
+            rect.x + 3.0,
+            rect.y + rect.height / 2.0 - 7.0,
+            &piece_dimensions_label(piece, unit),
+            false,
+        );
+    } else if rect.width >= 24.0 && rect.height >= 10.0 {
         add_text(
             content,
             7.0,
@@ -302,6 +319,14 @@ fn add_piece(content: &mut String, transform: &SheetPdfTransform, piece: &Placed
             false,
         );
     }
+}
+
+fn piece_dimensions_label(piece: &PlacedPiece, unit: Unit) -> String {
+    format!(
+        "{} x {}",
+        format_length(piece.rect.width, unit),
+        format_length(piece.rect.length, unit)
+    )
 }
 
 fn sheet_base_fill(sheet: &SolutionSheet, layout: LayoutKind) -> (f64, f64, f64) {
@@ -797,6 +822,25 @@ mod tests {
         assert!(text.contains("Cut #7-1"));
         assert!(text.contains("xref"));
         assert!(text.contains("%%EOF"));
+    }
+
+    #[test]
+    fn pdf_sheet_drawing_labels_pieces_with_cut_dimensions() {
+        let solution = sample_solution();
+        let piece = &solution.sheets[0].placed_pieces[0];
+
+        let pdf = export_solution_pdf_bytes(&solution, Unit::Millimeter);
+        let text = String::from_utf8_lossy(&pdf);
+
+        assert!(text.contains(&piece_dimensions_label(piece, Unit::Millimeter)));
+        assert_eq!(
+            piece_dimensions_label(piece, Unit::Millimeter),
+            format!(
+                "{} x {}",
+                format_length(30, Unit::Millimeter),
+                format_length(40, Unit::Millimeter)
+            )
+        );
     }
 
     #[test]

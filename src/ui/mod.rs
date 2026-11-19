@@ -68,6 +68,8 @@ struct FreecutAppState {
     csv_import_path: String,
     csv_import_report: Option<String>,
     export_path: String,
+    /// Result of the last menu file action, shown in the status bar.
+    status_report: Option<String>,
     export_report: Option<String>,
     error_message: Option<String>,
     dirty: bool,
@@ -87,6 +89,7 @@ impl Default for FreecutAppState {
             csv_import_path: String::new(),
             csv_import_report: None,
             export_path: String::new(),
+            status_report: None,
             export_report: None,
             error_message: None,
             dirty: false,
@@ -127,6 +130,69 @@ struct UiTexts {
 impl UiTexts {
     fn new(language: UiLanguage) -> Self {
         Self { language }
+    }
+
+    fn file_menu(self) -> &'static str {
+        match self.language {
+            UiLanguage::English => "File",
+            UiLanguage::German => "Datei",
+        }
+    }
+
+    fn edit_menu(self) -> &'static str {
+        match self.language {
+            UiLanguage::English => "Edit",
+            UiLanguage::German => "Bearbeiten",
+        }
+    }
+
+    fn open_menu_item(self) -> &'static str {
+        match self.language {
+            UiLanguage::English => "Open…",
+            UiLanguage::German => "Öffnen…",
+        }
+    }
+
+    fn import_csv_menu_item(self) -> &'static str {
+        match self.language {
+            UiLanguage::English => "Import CSV…",
+            UiLanguage::German => "CSV importieren…",
+        }
+    }
+
+    fn save_menu_item(self) -> &'static str {
+        match self.language {
+            UiLanguage::English => "Save",
+            UiLanguage::German => "Speichern",
+        }
+    }
+
+    fn save_as_menu_item(self) -> &'static str {
+        match self.language {
+            UiLanguage::English => "Save As…",
+            UiLanguage::German => "Speichern unter…",
+        }
+    }
+
+    fn export_pdf_menu_item(self) -> &'static str {
+        match self.language {
+            UiLanguage::English => "Export PDF…",
+            UiLanguage::German => "PDF exportieren…",
+        }
+    }
+
+    fn quit_menu_item(self) -> &'static str {
+        match self.language {
+            UiLanguage::English => "Quit",
+            UiLanguage::German => "Beenden",
+        }
+    }
+
+    fn project_file_filter(self) -> &'static str {
+        match self.language {
+            UiLanguage::English => "Freecut project",
+            UiLanguage::German => "Freecut-Projekt",
+        }
     }
 
     fn project_panel_heading(self) -> &'static str {
@@ -363,42 +429,10 @@ impl UiTexts {
         }
     }
 
-    fn project_file_heading(self) -> &'static str {
-        match self.language {
-            UiLanguage::English => "Project file",
-            UiLanguage::German => "Projektdatei",
-        }
-    }
-
     fn path_label(self) -> &'static str {
         match self.language {
             UiLanguage::English => "Path",
             UiLanguage::German => "Pfad",
-        }
-    }
-
-    fn save_project_button(self) -> &'static str {
-        match self.language {
-            UiLanguage::English => "Save project",
-            UiLanguage::German => "Projekt speichern",
-        }
-    }
-
-    fn load_project_button(self) -> &'static str {
-        match self.language {
-            UiLanguage::English => "Load project",
-            UiLanguage::German => "Projekt laden",
-        }
-    }
-
-    fn native_project_file_hint(self) -> String {
-        match self.language {
-            UiLanguage::English => format!(
-                "Native project file: JSON (*.{PROJECT_FILE_EXTENSION}); no hidden autosave path."
-            ),
-            UiLanguage::German => format!(
-                "Native Projektdatei: JSON (*.{PROJECT_FILE_EXTENSION}); kein versteckter Auto-Speicherpfad."
-            ),
         }
     }
 
@@ -587,6 +621,78 @@ impl UiTexts {
         }
     }
 
+    fn offset_width_label(self) -> &'static str {
+        match self.language {
+            UiLanguage::English => "Offset width",
+            UiLanguage::German => "Versatz Breite",
+        }
+    }
+
+    fn offset_length_label(self) -> &'static str {
+        match self.language {
+            UiLanguage::English => "Offset length",
+            UiLanguage::German => "Versatz Länge",
+        }
+    }
+
+    fn include_label(self) -> &'static str {
+        match self.language {
+            UiLanguage::English => "Use",
+            UiLanguage::German => "Verw.",
+        }
+    }
+
+    fn include_hover_text(self) -> &'static str {
+        match self.language {
+            UiLanguage::English => "Include this piece in the optimization",
+            UiLanguage::German => "Dieses Teil in die Optimierung einbeziehen",
+        }
+    }
+
+    fn assign_label(self) -> &'static str {
+        match self.language {
+            UiLanguage::English => "Assign",
+            UiLanguage::German => "Zuordnung",
+        }
+    }
+
+    fn any_stock_label(self) -> &'static str {
+        match self.language {
+            UiLanguage::English => "Any",
+            UiLanguage::German => "Beliebig",
+        }
+    }
+
+    fn assigned_stock_validation_message(self) -> &'static str {
+        match self.language {
+            UiLanguage::English => "Assigned stock unavailable",
+            UiLanguage::German => "Zugeordnetes Rohteil fehlt",
+        }
+    }
+
+    fn required_label(self) -> &'static str {
+        match self.language {
+            UiLanguage::English => "Required",
+            UiLanguage::German => "Pflicht",
+        }
+    }
+
+    fn required_hover_text(self) -> &'static str {
+        match self.language {
+            UiLanguage::English => "Every sheet of this stock piece must receive at least one cut",
+            UiLanguage::German => {
+                "Jedes Blatt dieses Rohteils muss mindestens einen Zuschnitt erhalten"
+            }
+        }
+    }
+
+    fn usable_label(self) -> &'static str {
+        match self.language {
+            UiLanguage::English => "usable",
+            UiLanguage::German => "nutzbar",
+        }
+    }
+
     fn quantity_label(self) -> &'static str {
         match self.language {
             UiLanguage::English => "Quantity",
@@ -697,31 +803,6 @@ impl UiTexts {
         match self.language {
             UiLanguage::English => VALIDATION_ERROR_PREFIX_EN,
             UiLanguage::German => VALIDATION_ERROR_PREFIX_DE,
-        }
-    }
-
-    fn pdf_export_heading(self) -> &'static str {
-        match self.language {
-            UiLanguage::English => "PDF export",
-            UiLanguage::German => "PDF-Export",
-        }
-    }
-
-    fn pdf_export_button(self) -> &'static str {
-        match self.language {
-            UiLanguage::English => "Export PDF",
-            UiLanguage::German => "PDF exportieren",
-        }
-    }
-
-    fn pdf_export_hint(self) -> &'static str {
-        match self.language {
-            UiLanguage::English => {
-                "Exports the currently displayed solution as a PDF; file dialog may follow in UX polish."
-            }
-            UiLanguage::German => {
-                "Exportiert die aktuell angezeigte Lösung als PDF; File-Dialog folgt frühestens in der UX-Politur."
-            }
         }
     }
 
@@ -939,6 +1020,18 @@ impl eframe::App for FreecutApp {
     fn update(&mut self, context: &egui::Context, _frame: &mut eframe::Frame) {
         apply_ui_font_size(context, self.state.font_size);
 
+        let mut menu_action = self.shortcut_action(context);
+        egui::TopBottomPanel::top("menu_bar").show(context, |ui| {
+            egui::menu::bar(ui, |ui| {
+                if let Some(action) = self.menu_bar(ui) {
+                    menu_action = Some(action);
+                }
+            });
+        });
+        if let Some(action) = menu_action {
+            self.run_menu_action(context, action);
+        }
+
         egui::TopBottomPanel::bottom("status_panel").show(context, |ui| {
             self.status_panel(ui);
         });
@@ -970,8 +1063,6 @@ impl FreecutApp {
 
         egui::ScrollArea::vertical().show(ui, |ui| {
             self.project_settings_editor(ui);
-            ui.separator();
-            self.project_file_panel(ui);
             ui.separator();
             self.csv_import_panel(ui);
             ui.separator();
@@ -1048,24 +1139,120 @@ impl FreecutApp {
         }
     }
 
-    fn project_file_panel(&mut self, ui: &mut egui::Ui) {
+    /// Menu action triggered by its keyboard shortcut this frame, if any.
+    fn shortcut_action(&self, context: &egui::Context) -> Option<MenuAction> {
+        MenuAction::ALL
+            .into_iter()
+            .filter(|action| self.menu_action_enabled(*action))
+            .find(|action| context.input_mut(|input| input.consume_shortcut(&action.shortcut())))
+    }
+
+    fn menu_action_enabled(&self, action: MenuAction) -> bool {
+        match action {
+            MenuAction::ExportPdf => self.state.solution.is_some(),
+            _ => true,
+        }
+    }
+
+    fn menu_bar(&self, ui: &mut egui::Ui) -> Option<MenuAction> {
         let texts = UiTexts::new(self.state.language);
+        let mut action = None;
+        let mut item = |ui: &mut egui::Ui, enabled: bool, label: &str, chosen: MenuAction| {
+            let shortcut = ui.ctx().format_shortcut(&chosen.shortcut());
+            let button = egui::Button::new(label).shortcut_text(shortcut);
+            if ui.add_enabled(enabled, button).clicked() {
+                action = Some(chosen);
+                ui.close_menu();
+            }
+        };
 
-        ui.heading(texts.project_file_heading());
-        ui.horizontal(|ui| {
-            ui.label(texts.path_label());
-            ui.text_edit_singleline(&mut self.state.project_path);
-            if ui.button(texts.save_project_button()).clicked() {
-                save_project_from_state_path(&mut self.state);
-            }
-            if ui.button(texts.load_project_button()).clicked() {
-                load_project_from_state_path(&mut self.state);
-            }
+        ui.menu_button(texts.file_menu(), |ui| {
+            item(ui, true, texts.open_menu_item(), MenuAction::Open);
+            item(
+                ui,
+                true,
+                texts.import_csv_menu_item(),
+                MenuAction::ImportCsv,
+            );
+            ui.separator();
+            item(ui, true, texts.save_menu_item(), MenuAction::Save);
+            item(ui, true, texts.save_as_menu_item(), MenuAction::SaveAs);
+            ui.separator();
+            item(
+                ui,
+                self.menu_action_enabled(MenuAction::ExportPdf),
+                texts.export_pdf_menu_item(),
+                MenuAction::ExportPdf,
+            );
+            ui.separator();
+            item(ui, true, texts.quit_menu_item(), MenuAction::Quit);
         });
-        ui.small(texts.native_project_file_hint());
+        ui.menu_button(texts.edit_menu(), |ui| {
+            item(ui, true, texts.optimize_button(), MenuAction::Optimize);
+        });
 
-        if let Some(report) = &self.state.project_io_report {
-            ui.label(report);
+        action
+    }
+
+    fn run_menu_action(&mut self, context: &egui::Context, action: MenuAction) {
+        let texts = UiTexts::new(self.state.language);
+        let state = &mut self.state;
+
+        match action {
+            MenuAction::Open => {
+                if let Some(path) = file_dialog(&state.project_path)
+                    .add_filter(texts.project_file_filter(), &["json"])
+                    .pick_file()
+                {
+                    state.project_path = path.to_string_lossy().into_owned();
+                    load_project_from_state_path(state);
+                    state.status_report.clone_from(&state.project_io_report);
+                }
+            }
+            MenuAction::ImportCsv => {
+                if let Some(path) = file_dialog(&state.csv_import_path)
+                    .add_filter("CSV", &["csv"])
+                    .pick_file()
+                {
+                    state.csv_import_path = path.to_string_lossy().into_owned();
+                    import_csv_from_state_path(state);
+                    state.status_report.clone_from(&state.csv_import_report);
+                }
+            }
+            MenuAction::Save if !state.project_path.trim().is_empty() => {
+                save_project_from_state_path(state);
+                state.status_report.clone_from(&state.project_io_report);
+            }
+            MenuAction::Save | MenuAction::SaveAs => {
+                if let Some(path) = file_dialog(&state.project_path)
+                    .add_filter(texts.project_file_filter(), &["json"])
+                    .set_file_name(default_file_name(
+                        &state.project.name,
+                        PROJECT_FILE_EXTENSION,
+                    ))
+                    .save_file()
+                {
+                    state.project_path = with_extension(&path, PROJECT_FILE_EXTENSION);
+                    save_project_from_state_path(state);
+                    state.status_report.clone_from(&state.project_io_report);
+                }
+            }
+            MenuAction::ExportPdf => {
+                if let Some(path) = file_dialog(&state.export_path)
+                    .add_filter("PDF", &["pdf"])
+                    .set_file_name(default_file_name(&state.project.name, "pdf"))
+                    .save_file()
+                {
+                    state.export_path = with_extension(&path, "pdf");
+                    export_solution_from_state_path(state);
+                    state.status_report.clone_from(&state.export_report);
+                }
+            }
+            MenuAction::Optimize => {
+                optimize_current_project(state);
+                state.status_report = None;
+            }
+            MenuAction::Quit => context.send_viewport_cmd(egui::ViewportCommand::Close),
         }
     }
 
@@ -1108,18 +1295,27 @@ impl FreecutApp {
 
         egui::Grid::new("stock_piece_editor")
             .striped(true)
-            .num_columns(7)
+            .num_columns(11)
             .show(ui, |ui| {
+                ui.strong(texts.include_label());
                 ui.strong("ID");
                 ui.strong(texts.width_label());
                 ui.strong(texts.length_label());
+                ui.strong(texts.offset_width_label());
+                ui.strong(texts.offset_length_label());
                 ui.strong(texts.quantity_label());
                 ui.strong(texts.pattern_setting_label());
+                ui.strong(texts.required_label());
                 ui.strong(texts.status_label());
                 ui.strong("");
                 ui.end_row();
 
                 for (index, stock) in self.state.project.stock_pieces.iter_mut().enumerate() {
+                    let mut changed = ui
+                        .checkbox(&mut stock.enabled, "")
+                        .on_hover_text(texts.include_hover_text())
+                        .changed();
+
                     if ui
                         .selectable_value(
                             &mut self.state.selection.stock_index,
@@ -1132,7 +1328,6 @@ impl FreecutApp {
                         self.state.selection.placed_piece_index = None;
                     }
 
-                    let mut changed = false;
                     changed |= ui
                         .add(
                             dimension_drag_value(&mut stock.width, unit)
@@ -1142,6 +1337,18 @@ impl FreecutApp {
                     changed |= ui
                         .add(
                             dimension_drag_value(&mut stock.length, unit)
+                                .prefix(texts.length_prefix()),
+                        )
+                        .changed();
+                    changed |= ui
+                        .add(
+                            dimension_drag_value(&mut stock.offset_width, unit)
+                                .prefix(texts.width_prefix()),
+                        )
+                        .changed();
+                    changed |= ui
+                        .add(
+                            dimension_drag_value(&mut stock.offset_length, unit)
                                 .prefix(texts.length_prefix()),
                         )
                         .changed();
@@ -1156,6 +1363,10 @@ impl FreecutApp {
                     }
                     changed |=
                         pattern_combo(ui, ("stock_pattern", index), &mut stock.pattern, texts);
+                    changed |= ui
+                        .checkbox(&mut stock.required, "")
+                        .on_hover_text(texts.required_hover_text())
+                        .changed();
 
                     validation_label(ui, stock_validation_message(stock, texts));
 
@@ -1201,11 +1412,17 @@ impl FreecutApp {
 
         let mut remove_index = None;
         let mut any_changed = false;
+        let stock_pieces = &self.state.project.stock_pieces;
+        let stock_options = stock_pieces
+            .iter()
+            .map(|stock| (stock.id, stock_option_label(stock, unit)))
+            .collect::<Vec<_>>();
 
         egui::Grid::new("cut_piece_editor")
             .striped(true)
-            .num_columns(9)
+            .num_columns(11)
             .show(ui, |ui| {
+                ui.strong(texts.include_label());
                 ui.strong("ID");
                 ui.strong(texts.label_column_label());
                 ui.strong(texts.width_label());
@@ -1213,11 +1430,17 @@ impl FreecutApp {
                 ui.strong(texts.quantity_label());
                 ui.strong(texts.pattern_setting_label());
                 ui.strong(texts.rotation_label());
+                ui.strong(texts.assign_label());
                 ui.strong(texts.status_label());
                 ui.strong("");
                 ui.end_row();
 
                 for (index, cut) in self.state.project.cut_pieces.iter_mut().enumerate() {
+                    let mut changed = ui
+                        .checkbox(&mut cut.enabled, "")
+                        .on_hover_text(texts.include_hover_text())
+                        .changed();
+
                     if ui
                         .selectable_value(
                             &mut self.state.selection.cut_index,
@@ -1230,7 +1453,6 @@ impl FreecutApp {
                         self.state.selection.placed_piece_index = None;
                     }
 
-                    let mut changed = false;
                     changed |= ui.text_edit_singleline(&mut cut.label).changed();
                     changed |= ui
                         .add(
@@ -1250,8 +1472,15 @@ impl FreecutApp {
                     changed |= ui
                         .checkbox(&mut cut.can_rotate, texts.rotatable_label())
                         .changed();
+                    changed |= assign_stock_combo(
+                        ui,
+                        ("cut_assign", index),
+                        &mut cut.assigned_stock,
+                        &stock_options,
+                        texts,
+                    );
 
-                    validation_label(ui, cut_validation_message(cut, texts));
+                    validation_label(ui, cut_validation_message(cut, stock_pieces, texts));
 
                     if changed {
                         self.state.selection.cut_index = Some(index);
@@ -1294,8 +1523,6 @@ impl FreecutApp {
             ));
             ui.small(texts.deterministic_hint());
         });
-        ui.separator();
-        self.solution_export_panel(ui);
         ui.separator();
 
         match &self.state.solution {
@@ -1350,11 +1577,10 @@ impl FreecutApp {
                                 self.state.selection.placed_piece_index = None;
                             }
                             ui.label(format!(
-                                "{} #{} · {} x {} · {} {} · {} {}",
+                                "{} #{} · {} · {} {} · {} {}",
                                 texts.stock_label(),
                                 sheet.stock_id.0,
-                                format_length(sheet.width, self.state.project.settings.unit),
-                                format_length(sheet.length, self.state.project.settings.unit),
+                                sheet_dimensions_label(sheet, &self.state.project, texts),
                                 sheet.placed_pieces.len(),
                                 texts.cuts_count_label(),
                                 sheet.waste.len(),
@@ -1370,6 +1596,7 @@ impl FreecutApp {
                             sheet_view_max_height,
                             texts,
                             solution.layout,
+                            self.state.project.settings.unit,
                         ) {
                             pending_graphic_selection = Some((index, piece_index));
                         }
@@ -1384,24 +1611,6 @@ impl FreecutApp {
             None => {
                 ui.label(texts.no_solution_yet_message());
             }
-        }
-    }
-
-    fn solution_export_panel(&mut self, ui: &mut egui::Ui) {
-        let texts = UiTexts::new(self.state.language);
-
-        ui.heading(texts.pdf_export_heading());
-        ui.horizontal(|ui| {
-            ui.label(texts.path_label());
-            ui.text_edit_singleline(&mut self.state.export_path);
-            if ui.button(texts.pdf_export_button()).clicked() {
-                export_solution_from_state_path(&mut self.state);
-            }
-        });
-        ui.small(texts.pdf_export_hint());
-
-        if let Some(report) = &self.state.export_report {
-            ui.label(report);
         }
     }
 
@@ -1420,11 +1629,84 @@ impl FreecutApp {
                 Some(message) => {
                     ui.colored_label(ui.visuals().error_fg_color, message);
                 }
-                None => {
-                    ui.label(texts.ready_status());
-                }
+                None => match &self.state.status_report {
+                    Some(report) => {
+                        ui.label(report);
+                    }
+                    None => {
+                        ui.label(texts.ready_status());
+                    }
+                },
             }
         });
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum MenuAction {
+    Open,
+    ImportCsv,
+    Save,
+    SaveAs,
+    ExportPdf,
+    Optimize,
+    Quit,
+}
+
+impl MenuAction {
+    /// Shortcut matching order: `SaveAs` precedes `Save` because egui ignores
+    /// extra Shift when matching, so Cmd+Shift+S would otherwise trigger Save.
+    const ALL: [Self; 7] = [
+        Self::Open,
+        Self::ImportCsv,
+        Self::SaveAs,
+        Self::Save,
+        Self::ExportPdf,
+        Self::Optimize,
+        Self::Quit,
+    ];
+
+    /// `Modifiers::COMMAND` is Cmd on macOS and Ctrl on other platforms.
+    fn shortcut(self) -> egui::KeyboardShortcut {
+        use egui::{Key, KeyboardShortcut, Modifiers};
+        match self {
+            Self::Open => KeyboardShortcut::new(Modifiers::COMMAND, Key::O),
+            Self::ImportCsv => KeyboardShortcut::new(Modifiers::COMMAND, Key::I),
+            Self::Save => KeyboardShortcut::new(Modifiers::COMMAND, Key::S),
+            Self::SaveAs => KeyboardShortcut::new(Modifiers::COMMAND | Modifiers::SHIFT, Key::S),
+            Self::ExportPdf => KeyboardShortcut::new(Modifiers::COMMAND, Key::E),
+            Self::Optimize => KeyboardShortcut::new(Modifiers::COMMAND, Key::R),
+            Self::Quit => KeyboardShortcut::new(Modifiers::COMMAND, Key::Q),
+        }
+    }
+}
+
+/// Native file dialog starting in the folder of the last used path, if any.
+fn file_dialog(last_path: &str) -> rfd::FileDialog {
+    let dialog = rfd::FileDialog::new();
+    match std::path::Path::new(last_path.trim()).parent() {
+        Some(folder) if folder.is_dir() => dialog.set_directory(folder),
+        _ => dialog,
+    }
+}
+
+fn default_file_name(project_name: &str, extension: &str) -> String {
+    let stem = project_name.trim();
+    let stem = if stem.is_empty() { "freecut" } else { stem };
+    format!("{stem}.{extension}")
+}
+
+/// Appends `extension` unless the chosen path already ends with it. Some platforms return the
+/// typed name without the filter's extension.
+fn with_extension(path: &std::path::Path, extension: &str) -> String {
+    let path = path.to_string_lossy();
+    if path
+        .to_ascii_lowercase()
+        .ends_with(&format!(".{}", extension.to_ascii_lowercase()))
+    {
+        path.into_owned()
+    } else {
+        format!("{path}.{extension}")
     }
 }
 
@@ -1435,6 +1717,7 @@ struct SheetViewBounds {
     scale: f32,
 }
 
+#[allow(clippy::too_many_arguments)]
 fn draw_solution_sheet(
     ui: &mut egui::Ui,
     sheet: &SolutionSheet,
@@ -1443,6 +1726,7 @@ fn draw_solution_sheet(
     max_height: f32,
     texts: UiTexts,
     layout: LayoutKind,
+    unit: Unit,
 ) -> Option<usize> {
     let Some(bounds) = sheet_view_bounds(sheet, ui.available_width(), max_height) else {
         ui.colored_label(
@@ -1484,6 +1768,7 @@ fn draw_solution_sheet(
             bounds.scale,
             highlighted_cut_id == Some(piece.cut_id),
             draw_piece_boundaries,
+            unit,
         );
     }
 
@@ -1539,6 +1824,7 @@ fn draw_placed_piece(
     scale: f32,
     highlighted: bool,
     draw_boundary: bool,
+    unit: Unit,
 ) {
     let piece_rect = solution_rect_to_screen_rect(piece.rect, sheet_rect, scale);
     painter.rect_filled(piece_rect, 0.0, piece_fill_color(piece, highlighted));
@@ -1557,7 +1843,11 @@ fn draw_placed_piece(
     painter.text(
         piece_rect.center(),
         egui::Align2::CENTER_CENTER,
-        piece_label(piece),
+        format!(
+            "{}\n{}",
+            piece_label(piece),
+            piece_dimensions_label(piece, unit)
+        ),
         egui::FontId::monospace(11.0),
         PIECE_LABEL_COLOR,
     );
@@ -1723,6 +2013,37 @@ fn hit_test_placed_piece(
 
 fn piece_label(piece: &PlacedPiece) -> String {
     format!("#{}-{}", piece.cut_id.0, piece.instance + 1)
+}
+
+fn piece_dimensions_label(piece: &PlacedPiece, unit: Unit) -> String {
+    format!(
+        "{} x {}",
+        format_length(piece.rect.width, unit),
+        format_length(piece.rect.length, unit)
+    )
+}
+
+fn sheet_dimensions_label(sheet: &SolutionSheet, project: &Project, texts: UiTexts) -> String {
+    let unit = project.settings.unit;
+    let full = format!(
+        "{} x {}",
+        format_length(sheet.width, unit),
+        format_length(sheet.length, unit)
+    );
+    match project
+        .stock_pieces
+        .iter()
+        .find(|stock| stock.id == sheet.stock_id)
+        .filter(|stock| stock.offset_width > 0 || stock.offset_length > 0)
+    {
+        Some(stock) => format!(
+            "{full} ({} {} x {})",
+            texts.usable_label(),
+            format_length(stock.usable_width(), unit),
+            format_length(stock.usable_length(), unit)
+        ),
+        None => full,
+    }
 }
 
 fn piece_fill_color(piece: &PlacedPiece, highlighted: bool) -> egui::Color32 {
@@ -2071,7 +2392,9 @@ fn optimize_current_project(state: &mut FreecutAppState) {
         return;
     }
 
-    if state.project.stock_pieces.is_empty() || state.project.cut_pieces.is_empty() {
+    if !state.project.stock_pieces.iter().any(|stock| stock.enabled)
+        || !state.project.cut_pieces.iter().any(|cut| cut.enabled)
+    {
         state.solution = None;
         state.error_message = Some(texts.empty_optimize_input_message().to_string());
         return;
@@ -2102,6 +2425,10 @@ fn add_default_stock_piece(state: &mut FreecutAppState) {
             .expect("default stock length fits geometry coordinates"),
         quantity: Some(1),
         pattern: PatternDirection::None,
+        enabled: true,
+        offset_width: 0,
+        offset_length: 0,
+        required: false,
     });
     select_stock_input_row(state, state.project.stock_pieces.len() - 1);
     mark_dirty(state);
@@ -2119,6 +2446,8 @@ fn add_default_cut_piece(state: &mut FreecutAppState) {
         quantity: 1,
         pattern: PatternDirection::None,
         can_rotate: true,
+        assigned_stock: None,
+        enabled: true,
     });
     select_cut_input_row(state, state.project.cut_pieces.len() - 1);
     mark_dirty(state);
@@ -2126,7 +2455,12 @@ fn add_default_cut_piece(state: &mut FreecutAppState) {
 
 fn remove_stock_piece(state: &mut FreecutAppState, index: usize) {
     if index < state.project.stock_pieces.len() {
-        state.project.stock_pieces.remove(index);
+        let removed = state.project.stock_pieces.remove(index);
+        for cut in &mut state.project.cut_pieces {
+            if cut.assigned_stock == Some(removed.id) {
+                cut.assigned_stock = None;
+            }
+        }
         state.selection.stock_index = previous_valid_index(state.project.stock_pieces.len(), index);
         state.selection.placed_piece_index = None;
         mark_dirty(state);
@@ -2237,6 +2571,43 @@ fn unit_combo(
         });
 
     *unit != before
+}
+
+fn stock_option_label(stock: &StockPiece, unit: Unit) -> String {
+    format!(
+        "#{} · {} x {}",
+        stock.id.0,
+        format_length(stock.width, unit),
+        format_length(stock.length, unit)
+    )
+}
+
+fn assign_stock_combo(
+    ui: &mut egui::Ui,
+    id: impl std::hash::Hash,
+    assigned_stock: &mut Option<PieceId>,
+    stock_options: &[(PieceId, String)],
+    texts: UiTexts,
+) -> bool {
+    let before = *assigned_stock;
+    let selected_text = match *assigned_stock {
+        None => texts.any_stock_label().to_string(),
+        Some(stock_id) => stock_options
+            .iter()
+            .find(|(option_id, _)| *option_id == stock_id)
+            .map_or_else(|| format!("#{}", stock_id.0), |(_, label)| label.clone()),
+    };
+
+    egui::ComboBox::from_id_salt(id)
+        .selected_text(selected_text)
+        .show_ui(ui, |ui| {
+            ui.selectable_value(assigned_stock, None, texts.any_stock_label());
+            for (stock_id, label) in stock_options {
+                ui.selectable_value(assigned_stock, Some(*stock_id), label);
+            }
+        });
+
+    *assigned_stock != before
 }
 
 fn pattern_combo(
@@ -2404,20 +2775,35 @@ fn stock_validation_message(stock: &StockPiece, texts: UiTexts) -> Option<&'stat
     }
 }
 
-fn cut_validation_message(cut: &CutPiece, texts: UiTexts) -> Option<&'static str> {
+fn cut_validation_message(
+    cut: &CutPiece,
+    stock_pieces: &[StockPiece],
+    texts: UiTexts,
+) -> Option<&'static str> {
     if cut.label.trim().is_empty() {
         Some(texts.missing_label_validation_message())
     } else if cut_has_invalid_dimensions(cut) {
         Some(texts.dimension_validation_message())
     } else if cut_has_invalid_quantity(cut) {
         Some(texts.quantity_validation_message())
+    } else if cut_has_unavailable_assigned_stock(cut, stock_pieces) {
+        Some(texts.assigned_stock_validation_message())
     } else {
         None
     }
 }
 
+/// An assignment is only usable when the assigned stock row exists and is included.
+fn cut_has_unavailable_assigned_stock(cut: &CutPiece, stock_pieces: &[StockPiece]) -> bool {
+    cut.assigned_stock.is_some_and(|stock_id| {
+        !stock_pieces
+            .iter()
+            .any(|stock| stock.id == stock_id && stock.enabled)
+    })
+}
+
 fn stock_has_invalid_dimensions(stock: &StockPiece) -> bool {
-    stock.width == 0 || stock.length == 0
+    stock.usable_width() == 0 || stock.usable_length() == 0
 }
 
 fn stock_has_invalid_quantity(stock: &StockPiece) -> bool {
@@ -2475,16 +2861,19 @@ fn validation_report(project: &Project) -> ProjectValidationReport {
             .stock_pieces
             .iter()
             .filter(|stock| {
-                stock_has_invalid_dimensions(stock) || stock_has_invalid_quantity(stock)
+                stock.enabled
+                    && (stock_has_invalid_dimensions(stock) || stock_has_invalid_quantity(stock))
             })
             .count(),
         cut_errors: project
             .cut_pieces
             .iter()
+            .filter(|cut| cut.enabled)
             .filter(|cut| {
                 cut.label.trim().is_empty()
                     || cut_has_invalid_dimensions(cut)
                     || cut_has_invalid_quantity(cut)
+                    || cut_has_unavailable_assigned_stock(cut, &project.stock_pieces)
             })
             .count(),
     }
@@ -2589,6 +2978,27 @@ mod tests {
         cut_kerf_geometry as cut_preview_geometry, Cut as SolutionCut, CutOrientation,
         SliceNode as SolutionSliceNode,
     };
+
+    #[test]
+    fn dialog_paths_get_the_expected_extension() {
+        assert_eq!(
+            with_extension(std::path::Path::new("/tmp/kitchen"), PROJECT_FILE_EXTENSION),
+            "/tmp/kitchen.freecut.json"
+        );
+        assert_eq!(
+            with_extension(
+                std::path::Path::new("/tmp/kitchen.freecut.json"),
+                PROJECT_FILE_EXTENSION
+            ),
+            "/tmp/kitchen.freecut.json"
+        );
+        assert_eq!(
+            with_extension(std::path::Path::new("/tmp/plan.PDF"), "pdf"),
+            "/tmp/plan.PDF"
+        );
+        assert_eq!(default_file_name("  ", "pdf"), "freecut.pdf");
+        assert_eq!(default_file_name("Kitchen", "pdf"), "Kitchen.pdf");
+    }
 
     #[test]
     fn app_state_starts_without_solution_error_or_dirty_flag() {
@@ -2738,6 +3148,34 @@ mod tests {
         assert!(state.export_report.is_none());
         assert_eq!(state.selection.sheet_index, None);
         assert_eq!(state.selection.placed_piece_index, None);
+    }
+
+    #[test]
+    fn cut_assignment_is_validated_and_cleared_with_its_stock() {
+        let mut state = FreecutAppState::default();
+        add_default_stock_piece(&mut state);
+        add_default_cut_piece(&mut state);
+        let stock_id = state.project.stock_pieces[0].id;
+        let texts = UiTexts::new(UiLanguage::English);
+
+        state.project.cut_pieces[0].assigned_stock = Some(stock_id);
+        assert!(validation_report(&state.project).is_valid());
+        optimize_current_project(&mut state);
+        assert!(state.solution.is_some());
+
+        state.project.stock_pieces[0].enabled = false;
+        assert_eq!(
+            cut_validation_message(
+                &state.project.cut_pieces[0],
+                &state.project.stock_pieces,
+                texts
+            ),
+            Some("Assigned stock unavailable")
+        );
+        assert!(!validation_report(&state.project).is_valid());
+
+        remove_stock_piece(&mut state, 0);
+        assert_eq!(state.project.cut_pieces[0].assigned_stock, None);
     }
 
     #[test]
@@ -2897,16 +3335,18 @@ mod tests {
         assert_eq!(german.ready_status(), "Bereit");
         assert_eq!(english.effort_label(OptimizerEffort::Thorough), "Thorough");
         assert_eq!(german.effort_label(OptimizerEffort::Thorough), "Gründlich");
-        assert_eq!(english.project_file_heading(), "Project file");
-        assert_eq!(german.project_file_heading(), "Projektdatei");
+        assert_eq!(english.file_menu(), "File");
+        assert_eq!(german.file_menu(), "Datei");
+        assert_eq!(english.save_as_menu_item(), "Save As…");
+        assert_eq!(german.save_as_menu_item(), "Speichern unter…");
         assert_eq!(english.csv_import_heading(), "CSV import");
         assert_eq!(german.csv_import_heading(), "CSV-Import");
         assert_eq!(english.stock_editor_heading(), "Stock pieces");
         assert_eq!(german.stock_editor_heading(), "Rohteile");
         assert_eq!(english.cut_editor_heading(), "Cut pieces");
         assert_eq!(german.cut_editor_heading(), "Zuschnitte");
-        assert_eq!(english.pdf_export_heading(), "PDF export");
-        assert_eq!(german.pdf_export_heading(), "PDF-Export");
+        assert_eq!(english.export_pdf_menu_item(), "Export PDF…");
+        assert_eq!(german.export_pdf_menu_item(), "PDF exportieren…");
         assert_eq!(english.solution_heading(), "Solution");
         assert_eq!(german.solution_heading(), "Lösung");
         assert_eq!(
@@ -3653,6 +4093,90 @@ broken,0,20,1\n";
     }
 
     #[test]
+    fn solution_labels_show_cut_and_stock_dimensions() {
+        let mm = |value| length_from_whole_units(value, Unit::Millimeter).unwrap();
+        let piece = PlacedPiece {
+            cut_id: PieceId(7),
+            instance: 0,
+            rect: SolutionRect {
+                x: 0,
+                y: 0,
+                width: mm(300),
+                length: mm(200),
+            },
+            pattern: PatternDirection::None,
+            rotated: false,
+        };
+        assert_eq!(
+            piece_dimensions_label(&piece, Unit::Millimeter),
+            format!(
+                "{} x {}",
+                format_length(mm(300), Unit::Millimeter),
+                format_length(mm(200), Unit::Millimeter)
+            )
+        );
+
+        let mut state = FreecutAppState::default();
+        add_default_stock_piece(&mut state);
+        let stock = &mut state.project.stock_pieces[0];
+        stock.offset_width = mm(100);
+        let sheet = SolutionSheet {
+            stock_id: stock.id,
+            width: stock.width,
+            length: stock.length,
+            placed_pieces: Vec::new(),
+            waste: Vec::new(),
+            cutting_guide: None,
+        };
+        let texts = UiTexts::new(UiLanguage::English);
+
+        let label = sheet_dimensions_label(&sheet, &state.project, texts);
+        assert_eq!(
+            label,
+            format!(
+                "{} x {} (usable {} x {})",
+                format_length(mm(2440), Unit::Millimeter),
+                format_length(mm(1220), Unit::Millimeter),
+                format_length(mm(2340), Unit::Millimeter),
+                format_length(mm(1220), Unit::Millimeter)
+            )
+        );
+
+        state.project.stock_pieces[0].offset_width = 0;
+        assert_eq!(
+            sheet_dimensions_label(&sheet, &state.project, texts),
+            format!(
+                "{} x {}",
+                format_length(mm(2440), Unit::Millimeter),
+                format_length(mm(1220), Unit::Millimeter)
+            )
+        );
+    }
+
+    #[test]
+    fn disabled_rows_are_ignored_by_validation_and_optimize() {
+        let mut state = FreecutAppState::default();
+        add_default_stock_piece(&mut state);
+        add_default_cut_piece(&mut state);
+        add_default_cut_piece(&mut state);
+        state.project.cut_pieces[1].quantity = 0;
+        state.project.cut_pieces[1].enabled = false;
+
+        assert!(validation_report(&state.project).is_valid());
+        optimize_current_project(&mut state);
+        let solution = state.solution.as_ref().expect("enabled rows optimize");
+        assert!(solution
+            .sheets
+            .iter()
+            .flat_map(|sheet| &sheet.placed_pieces)
+            .all(|piece| piece.cut_id == state.project.cut_pieces[0].id));
+
+        state.project.stock_pieces[0].enabled = false;
+        optimize_current_project(&mut state);
+        assert!(state.solution.is_none());
+    }
+
+    #[test]
     fn selected_cut_id_prepares_solution_highlight_from_input_selection() {
         let mut state = FreecutAppState::default();
         add_default_cut_piece(&mut state);
@@ -4069,11 +4593,19 @@ broken,0,20,1\n";
             Some("Dimensions > 0")
         );
         assert_eq!(
-            cut_validation_message(&state.project.cut_pieces[0], german),
+            cut_validation_message(
+                &state.project.cut_pieces[0],
+                &state.project.stock_pieces,
+                german
+            ),
             Some("Label fehlt")
         );
         assert_eq!(
-            cut_validation_message(&state.project.cut_pieces[0], english),
+            cut_validation_message(
+                &state.project.cut_pieces[0],
+                &state.project.stock_pieces,
+                english
+            ),
             Some("Label missing")
         );
         assert_eq!(

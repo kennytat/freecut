@@ -18,6 +18,10 @@ fn balanced_optimizer_places_gui_case_after_adding_one_more_small_cut() {
             length: 1220,
             quantity: Some(1),
             pattern: PatternDirection::None,
+            enabled: true,
+            offset_width: 0,
+            offset_length: 0,
+            required: false,
         }],
         cut_pieces: vec![
             CutPiece {
@@ -28,6 +32,8 @@ fn balanced_optimizer_places_gui_case_after_adding_one_more_small_cut() {
                 quantity: 15,
                 pattern: PatternDirection::None,
                 can_rotate: true,
+                enabled: true,
+                assigned_stock: None,
             },
             CutPiece {
                 id: PieceId(3),
@@ -37,6 +43,8 @@ fn balanced_optimizer_places_gui_case_after_adding_one_more_small_cut() {
                 quantity: 44,
                 pattern: PatternDirection::None,
                 can_rotate: true,
+                enabled: true,
+                assigned_stock: None,
             },
             CutPiece {
                 id: PieceId(4),
@@ -46,6 +54,8 @@ fn balanced_optimizer_places_gui_case_after_adding_one_more_small_cut() {
                 quantity: 10,
                 pattern: PatternDirection::None,
                 can_rotate: true,
+                enabled: true,
+                assigned_stock: None,
             },
             CutPiece {
                 id: PieceId(5),
@@ -55,6 +65,8 @@ fn balanced_optimizer_places_gui_case_after_adding_one_more_small_cut() {
                 quantity: 35,
                 pattern: PatternDirection::None,
                 can_rotate: true,
+                enabled: true,
+                assigned_stock: None,
             },
         ],
         settings: CutSettings {
@@ -73,6 +85,249 @@ fn balanced_optimizer_places_gui_case_after_adding_one_more_small_cut() {
 }
 
 #[test]
+fn optimizer_skips_disabled_pieces_and_uses_usable_stock_area() {
+    let project = Project {
+        name: "enabled-and-offset".to_string(),
+        stock_pieces: vec![
+            StockPiece {
+                id: PieceId(1),
+                width: 1000,
+                length: 500,
+                quantity: Some(1),
+                pattern: PatternDirection::None,
+                enabled: true,
+                offset_width: 100,
+                offset_length: 50,
+                required: false,
+            },
+            StockPiece {
+                id: PieceId(2),
+                width: 5000,
+                length: 5000,
+                quantity: Some(1),
+                pattern: PatternDirection::None,
+                enabled: false,
+                offset_width: 0,
+                offset_length: 0,
+                required: false,
+            },
+        ],
+        cut_pieces: vec![
+            CutPiece {
+                id: PieceId(3),
+                label: "fits-usable".to_string(),
+                width: 900,
+                length: 450,
+                quantity: 1,
+                pattern: PatternDirection::None,
+                can_rotate: false,
+                enabled: true,
+                assigned_stock: None,
+            },
+            CutPiece {
+                id: PieceId(4),
+                label: "excluded".to_string(),
+                width: 4000,
+                length: 4000,
+                quantity: 1,
+                pattern: PatternDirection::None,
+                can_rotate: false,
+                enabled: false,
+                assigned_stock: None,
+            },
+        ],
+        settings: CutSettings {
+            unit: Unit::Millimeter,
+            kerf_width: 0,
+            layout: LayoutKind::Guillotine,
+        },
+    };
+
+    let solution = BaselineOptimizer
+        .optimize_with_config(&project, OptimizerConfig::new(OptimizerEffort::Fast))
+        .expect("enabled cut fits the usable stock area");
+
+    assert_eq!(solution.sheets.len(), 1);
+    let sheet = &solution.sheets[0];
+    assert_eq!(sheet.stock_id, PieceId(1));
+    // Output shows the full stock; the offset strips are waste and pieces stay in the usable area.
+    assert_eq!((sheet.width, sheet.length), (1000, 500));
+    assert!(sheet.waste.contains(&Rect {
+        x: 900,
+        y: 0,
+        width: 100,
+        length: 500,
+    }));
+    assert!(sheet.waste.contains(&Rect {
+        x: 0,
+        y: 450,
+        width: 900,
+        length: 50,
+    }));
+    assert_eq!(sheet.placed_pieces.len(), 1);
+    assert_eq!(sheet.placed_pieces[0].cut_id, PieceId(3));
+    let placed = sheet.placed_pieces[0].rect;
+    assert!(placed.x + placed.width <= 900 && placed.y + placed.length <= 450);
+
+    let mut too_big = project.clone();
+    too_big.stock_pieces[0].offset_width = 101;
+    assert!(BaselineOptimizer
+        .optimize_with_config(&too_big, OptimizerConfig::new(OptimizerEffort::Fast))
+        .is_err());
+}
+
+fn required_stock_project(layout: LayoutKind, offcut_quantity: u32, required: bool) -> Project {
+    Project {
+        name: "required-stock".to_string(),
+        stock_pieces: vec![
+            StockPiece {
+                id: PieceId(1),
+                width: 1000,
+                length: 1000,
+                quantity: Some(1),
+                pattern: PatternDirection::None,
+                enabled: true,
+                offset_width: 0,
+                offset_length: 0,
+                required: false,
+            },
+            StockPiece {
+                id: PieceId(2),
+                width: 300,
+                length: 300,
+                quantity: Some(offcut_quantity),
+                pattern: PatternDirection::None,
+                enabled: true,
+                offset_width: 0,
+                offset_length: 0,
+                required,
+            },
+        ],
+        cut_pieces: vec![cut(3, 200, 200, 4, true)],
+        settings: CutSettings {
+            unit: Unit::Millimeter,
+            kerf_width: 0,
+            layout,
+        },
+    }
+}
+
+#[test]
+fn required_stock_is_used_by_every_effort_and_layout() {
+    for layout in [LayoutKind::Guillotine, LayoutKind::Nested] {
+        for effort in [
+            OptimizerEffort::Fast,
+            OptimizerEffort::Balanced,
+            OptimizerEffort::Thorough,
+        ] {
+            let optional = BaselineOptimizer
+                .optimize_with_config(
+                    &required_stock_project(layout, 1, false),
+                    OptimizerConfig::new(effort),
+                )
+                .expect("all cuts fit on the large sheet");
+            assert_eq!(optional.sheets.len(), 1, "{layout:?} {effort:?}");
+            assert_eq!(optional.sheets[0].stock_id, PieceId(1));
+
+            let required = BaselineOptimizer
+                .optimize_with_config(
+                    &required_stock_project(layout, 2, true),
+                    OptimizerConfig::new(effort),
+                )
+                .expect("required offcuts can each take one cut");
+            let offcut_sheets = required
+                .sheets
+                .iter()
+                .filter(|sheet| sheet.stock_id == PieceId(2))
+                .collect::<Vec<_>>();
+            assert_eq!(offcut_sheets.len(), 2, "{layout:?} {effort:?}");
+            assert!(offcut_sheets
+                .iter()
+                .all(|sheet| !sheet.placed_pieces.is_empty()));
+            assert_eq!(
+                required
+                    .sheets
+                    .iter()
+                    .map(|sheet| sheet.placed_pieces.len())
+                    .sum::<usize>(),
+                4
+            );
+            assert_solution_within_bounds_and_non_overlapping(&required);
+        }
+    }
+}
+
+#[test]
+fn required_stock_without_enough_cuts_has_no_solution() {
+    let error = BaselineOptimizer
+        .optimize_with_config(
+            &required_stock_project(LayoutKind::Guillotine, 5, true),
+            OptimizerConfig::new(OptimizerEffort::Thorough),
+        )
+        .expect_err("five required sheets cannot each get one of four cuts");
+    assert_eq!(error, OptimizeError::NoSolution);
+
+    let mut disabled = required_stock_project(LayoutKind::Guillotine, 5, true);
+    disabled.stock_pieces[1].enabled = false;
+    let solution = BaselineOptimizer
+        .optimize_with_config(&disabled, OptimizerConfig::new(OptimizerEffort::Fast))
+        .expect("excluded stock is not required");
+    assert_eq!(solution.sheets.len(), 1);
+}
+
+#[test]
+fn assigned_cuts_are_only_placed_on_their_stock_for_every_effort_and_layout() {
+    for layout in [LayoutKind::Guillotine, LayoutKind::Nested] {
+        for effort in [
+            OptimizerEffort::Fast,
+            OptimizerEffort::Balanced,
+            OptimizerEffort::Thorough,
+        ] {
+            let mut project = required_stock_project(layout, 2, false);
+            project.cut_pieces.push(CutPiece {
+                assigned_stock: Some(PieceId(2)),
+                ..cut(4, 250, 250, 2, true)
+            });
+
+            let solution = BaselineOptimizer
+                .optimize_with_config(&project, OptimizerConfig::new(effort))
+                .expect("assigned cuts fit their offcuts");
+
+            for sheet in &solution.sheets {
+                for piece in &sheet.placed_pieces {
+                    if piece.cut_id == PieceId(4) {
+                        assert_eq!(sheet.stock_id, PieceId(2), "{layout:?} {effort:?}");
+                    }
+                }
+            }
+            assert_eq!(
+                solution
+                    .sheets
+                    .iter()
+                    .map(|sheet| sheet.placed_pieces.len())
+                    .sum::<usize>(),
+                6
+            );
+            assert_solution_within_bounds_and_non_overlapping(&solution);
+        }
+    }
+}
+
+#[test]
+fn assigned_cut_that_does_not_fit_its_stock_has_no_solution() {
+    let mut project = required_stock_project(LayoutKind::Guillotine, 1, false);
+    project.cut_pieces.push(CutPiece {
+        assigned_stock: Some(PieceId(2)),
+        ..cut(4, 400, 400, 1, true)
+    });
+
+    let error = BaselineOptimizer
+        .optimize_with_config(&project, OptimizerConfig::new(OptimizerEffort::Thorough))
+        .expect_err("a 400 x 400 cut cannot go on its assigned 300 x 300 stock");
+    assert_eq!(error, OptimizeError::NoSolution);
+}
+
+#[test]
 fn thorough_guillotine_places_q71_side_strip_case() {
     let project = Project {
         name: "side-strip-repro".to_string(),
@@ -82,6 +337,10 @@ fn thorough_guillotine_places_q71_side_strip_case() {
             length: 1220,
             quantity: Some(1),
             pattern: PatternDirection::None,
+            enabled: true,
+            offset_width: 0,
+            offset_length: 0,
+            required: false,
         }],
         cut_pieces: vec![
             CutPiece {
@@ -92,6 +351,8 @@ fn thorough_guillotine_places_q71_side_strip_case() {
                 quantity: 85,
                 pattern: PatternDirection::None,
                 can_rotate: true,
+                enabled: true,
+                assigned_stock: None,
             },
             CutPiece {
                 id: PieceId(3),
@@ -101,6 +362,8 @@ fn thorough_guillotine_places_q71_side_strip_case() {
                 quantity: 21,
                 pattern: PatternDirection::None,
                 can_rotate: true,
+                enabled: true,
+                assigned_stock: None,
             },
             CutPiece {
                 id: PieceId(4),
@@ -110,6 +373,8 @@ fn thorough_guillotine_places_q71_side_strip_case() {
                 quantity: 71,
                 pattern: PatternDirection::None,
                 can_rotate: true,
+                enabled: true,
+                assigned_stock: None,
             },
         ],
         settings: CutSettings {
@@ -260,6 +525,10 @@ fn nested_uses_pattern_wildcard_like_guillotine() {
             length: 100,
             quantity: Some(1),
             pattern: PatternDirection::ParallelToWidth,
+            enabled: true,
+            offset_width: 0,
+            offset_length: 0,
+            required: false,
         }],
         cut_pieces: vec![cut(10, 50, 50, 1, false)],
         settings: CutSettings {
@@ -344,21 +613,25 @@ fn nested_repeats_deterministically_for_all_effort_levels() {
 }
 
 #[test]
-fn guillotine_balanced_places_rotation_disabled_small_cut_cases() {
+fn guillotine_places_rotation_disabled_small_cut_cases_at_every_effort() {
     for disabled_cut_id in [4, 5] {
         let project = rotation_disabled_regression_project(LayoutKind::Guillotine, disabled_cut_id);
 
-        let fast_error = BaselineOptimizer
-            .optimize_with_config(&project, OptimizerConfig::new(OptimizerEffort::Fast))
-            .expect_err("fast may remain a narrow greedy guillotine pass");
-        let balanced_solution = BaselineOptimizer
-            .optimize_with_config(&project, OptimizerConfig::new(OptimizerEffort::Balanced))
-            .expect("balanced should include enough guillotine variants for this practical case");
+        // Diversified construction lets even Fast find this layout; it used to need Balanced.
+        for effort in [
+            OptimizerEffort::Fast,
+            OptimizerEffort::Balanced,
+            OptimizerEffort::Thorough,
+        ] {
+            let solution = BaselineOptimizer
+                .optimize_with_config(&project, OptimizerConfig::new(effort))
+                .expect("guillotine search should place this practical case on one sheet");
 
-        assert_eq!(fast_error, OptimizeError::NoSolution);
-        assert_eq!(balanced_solution.sheets.len(), 1);
-        assert_eq!(balanced_solution.sheets[0].placed_pieces.len(), 47);
-        assert_solution_within_bounds_and_non_overlapping(&balanced_solution);
+            assert_eq!(solution.sheets.len(), 1, "{effort:?}");
+            assert_eq!(solution.sheets[0].placed_pieces.len(), 47);
+            assert!(solution.sheets[0].cutting_guide.is_some());
+            assert_solution_within_bounds_and_non_overlapping(&solution);
+        }
     }
 }
 
@@ -386,6 +659,10 @@ fn nested_project(stock_width: u32, stock_length: u32, cut_pieces: Vec<CutPiece>
             length: stock_length,
             quantity: Some(1),
             pattern: PatternDirection::None,
+            enabled: true,
+            offset_width: 0,
+            offset_length: 0,
+            required: false,
         }],
         cut_pieces,
         settings: CutSettings {
@@ -405,6 +682,10 @@ fn rotation_disabled_regression_project(layout: LayoutKind, disabled_cut_id: u64
             length: 1220,
             quantity: Some(1),
             pattern: PatternDirection::None,
+            enabled: true,
+            offset_width: 0,
+            offset_length: 0,
+            required: false,
         }],
         cut_pieces: vec![
             cut(2, 500, 620, 4, disabled_cut_id != 2),
@@ -431,6 +712,10 @@ fn fractional_kerf_project(layout: LayoutKind, kerf: &str) -> Project {
             length: inch("1"),
             quantity: Some(1),
             pattern: PatternDirection::None,
+            enabled: true,
+            offset_width: 0,
+            offset_length: 0,
+            required: false,
         }],
         cut_pieces: vec![CutPiece {
             id: PieceId(2),
@@ -440,6 +725,8 @@ fn fractional_kerf_project(layout: LayoutKind, kerf: &str) -> Project {
             quantity: 2,
             pattern: PatternDirection::None,
             can_rotate: false,
+            enabled: true,
+            assigned_stock: None,
         }],
         settings: CutSettings {
             unit: Unit::Inch,
@@ -458,6 +745,8 @@ fn cut(id: u64, width: u32, length: u32, quantity: u32, can_rotate: bool) -> Cut
         quantity,
         pattern: PatternDirection::None,
         can_rotate,
+        enabled: true,
+        assigned_stock: None,
     }
 }
 

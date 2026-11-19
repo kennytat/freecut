@@ -14,6 +14,11 @@ use crate::{
 use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
 
+mod guide;
+mod search;
+
+use search::SearchConfig;
+
 pub trait Optimizer {
     #[allow(clippy::missing_errors_doc)]
     fn optimize(&self, project: &Project) -> Result<Solution, OptimizeError>;
@@ -45,19 +50,60 @@ impl BaselineOptimizer {
             });
         }
 
-        match project.settings.layout {
+        let solution = match project.settings.layout {
             LayoutKind::Guillotine => optimize_population_pipeline::<BaselineGuillotineBackend>(
                 &instance,
                 &guillotine_pipeline_config(config),
+                SearchConfig::from_effort(config.effort),
                 LayoutKind::Guillotine,
             ),
             LayoutKind::Nested => optimize_population_pipeline::<NestedMaxRectsBackend>(
                 &instance,
                 &PopulationPipelineConfig::from_optimizer_config(config),
+                SearchConfig::from_effort(config.effort),
                 LayoutKind::Nested,
             ),
-        }
+        }?;
+
+        Ok(restore_stock_offsets(solution, project))
     }
+}
+
+/// Packing runs on the usable area at the sheet origin. Restore the full stock size for output
+/// and mark the offset strips (right edge for width, bottom edge for length) as waste.
+fn restore_stock_offsets(mut solution: Solution, project: &Project) -> Solution {
+    for sheet in &mut solution.sheets {
+        let Some(stock) = project
+            .stock_pieces
+            .iter()
+            .find(|stock| stock.id == sheet.stock_id)
+        else {
+            continue;
+        };
+        let (usable_width, usable_length) = (sheet.width, sheet.length);
+
+        if stock.width > usable_width {
+            sheet.waste.push(Rect {
+                x: usable_width,
+                y: 0,
+                width: stock.width - usable_width,
+                length: stock.length,
+            });
+        }
+        if stock.length > usable_length {
+            sheet.waste.push(Rect {
+                x: 0,
+                y: usable_length,
+                width: usable_width,
+                length: stock.length - usable_length,
+            });
+        }
+
+        sheet.width = stock.width;
+        sheet.length = stock.length;
+    }
+
+    solution
 }
 
 fn guillotine_pipeline_config(config: OptimizerConfig) -> PopulationPipelineConfig {
@@ -83,7 +129,7 @@ impl Optimizer for BaselineOptimizer {
 }
 
 trait PackingBackend {
-    type Bin;
+    type Bin: Clone;
     type Heuristic: Copy;
 
     fn default_heuristic() -> Self::Heuristic;
@@ -97,6 +143,12 @@ trait PackingBackend {
         StockInstanceKey::from(&Self::clone_stock_instance(bin))
     }
     fn placed_cut_keys(bin: &Self::Bin) -> Vec<CutInstanceKey>;
+    fn is_required(bin: &Self::Bin) -> bool {
+        Self::clone_stock_instance(bin).required
+    }
+    fn is_unused_required(bin: &Self::Bin) -> bool {
+        Self::is_required(bin) && Self::placed_cut_keys(bin).is_empty()
+    }
     fn stock_area(bin: &Self::Bin) -> u64;
     fn fitness(bin: &Self::Bin) -> f64;
     fn into_solution_sheet(bin: Self::Bin) -> SolutionSheet;
@@ -105,6 +157,7 @@ trait PackingBackend {
 fn optimize_population_pipeline<B>(
     instance: &ProblemInstance,
     config: &PopulationPipelineConfig,
+    search: SearchConfig,
     layout: LayoutKind,
 ) -> Result<Solution, OptimizeError>
 where
@@ -117,7 +170,7 @@ where
     let population =
         run_population_generations(population, config, kerf_width, B::default_heuristic());
 
-    select_best_valid_candidate(population)
+    search::best_after_search(population, instance, search)
         .map(|candidate| candidate.into_solution(layout))
         .ok_or(OptimizeError::NoSolution)
 }
@@ -133,6 +186,16 @@ fn basic_feasibility_prefilter(instance: &ProblemInstance) -> Result<(), Optimiz
     }
 
     if total_cut_area(&instance.cuts) > total_stock_area(&instance.stock) {
+        return Err(OptimizeError::NoSolution);
+    }
+
+    // Every required stock instance needs at least one cut of its own.
+    let required_stock = instance.stock.iter().filter(|stock| stock.required);
+    if required_stock.clone().count() > instance.cuts.len()
+        || !required_stock
+            .clone()
+            .all(|stock| instance.cuts.iter().any(|cut| cut_fits_stock(cut, stock)))
+    {
         return Err(OptimizeError::NoSolution);
     }
 
@@ -152,18 +215,25 @@ fn total_stock_area(stock: &[StockInstance]) -> u64 {
         .sum()
 }
 
+/// A cut assigned to a stock piece may only be placed on instances of that piece.
+fn cut_allowed_on_stock(cut: &CutInstance, stock: &StockInstance) -> bool {
+    cut.assigned_stock
+        .is_none_or(|stock_id| stock_id == stock.stock_id)
+}
+
 fn cut_fits_stock(cut: &CutInstance, stock: &StockInstance) -> bool {
-    fit_cut_in_rect(
-        cut,
-        stock.pattern,
-        Rect {
-            x: 0,
-            y: 0,
-            width: stock.width,
-            length: stock.length,
-        },
-    )
-    .is_some()
+    cut_allowed_on_stock(cut, stock)
+        && fit_cut_in_rect(
+            cut,
+            stock.pattern,
+            Rect {
+                x: 0,
+                y: 0,
+                width: stock.width,
+                length: stock.length,
+            },
+        )
+        .is_some()
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -423,6 +493,7 @@ where
         StockInventory::new(instance.stock.clone()),
         CutCatalog::new(instance.cuts.clone()),
     );
+    candidate.open_required_bins(instance.kerf_width);
     let ordered_cuts = candidate.cuts_for_keys(&seed.cut_order)?;
 
     for cut in &ordered_cuts {
@@ -573,6 +644,7 @@ where
         stock_source.cut_catalog.clone(),
     );
     child.bins.push(rebuilt_donor_bin);
+    child.open_required_bins(kerf_width);
     child.unused_cuts = stock_source
         .cut_catalog
         .cuts
@@ -816,12 +888,38 @@ where
         }
     }
 
+    /// Moves every required stock instance into an empty bin so placement can target it.
+    fn open_required_bins(&mut self, kerf_width: u32) {
+        let (required, available): (Vec<_>, Vec<_>) =
+            std::mem::take(&mut self.available_stock.stock)
+                .into_iter()
+                .partition(|stock| stock.required);
+        self.available_stock.stock = available;
+        self.bins.extend(
+            required
+                .into_iter()
+                .map(|stock| B::new_bin(stock, kerf_width)),
+        );
+    }
+
     fn place_cut_first_fit(
         &mut self,
         cut: &CutInstance,
         kerf_width: u32,
         heuristic: B::Heuristic,
     ) -> bool {
+        // Seed empty required sheets first so first-fit cannot pack everything elsewhere.
+        for bin in self
+            .bins
+            .iter_mut()
+            .filter(|bin| B::is_unused_required(bin))
+        {
+            if B::insert(bin, cut, heuristic) {
+                self.remove_unused_cut(CutInstanceKey::from(cut));
+                return true;
+            }
+        }
+
         for bin in &mut self.bins {
             if B::insert(bin, cut, heuristic) {
                 self.remove_unused_cut(CutInstanceKey::from(cut));
@@ -926,9 +1024,11 @@ where
     }
 
     fn worst_bin_index(&self) -> Option<usize> {
+        // Required sheets must stay in the layout, so they are never compaction targets.
         self.bins
             .iter()
             .enumerate()
+            .filter(|(_, bin)| !B::is_required(bin))
             .min_by(|(_, left), (_, right)| {
                 B::fitness(left)
                     .partial_cmp(&B::fitness(right))
@@ -941,6 +1041,15 @@ where
         self.unused_cuts.is_empty()
             && !self.has_duplicate_placed_cut_keys()
             && !self.has_unresolved_placed_cut_keys()
+            && !self.has_unused_required_stock()
+    }
+
+    fn has_unused_required_stock(&self) -> bool {
+        self.available_stock
+            .stock
+            .iter()
+            .any(|stock| stock.required)
+            || self.bins.iter().any(B::is_unused_required)
     }
 
     fn has_duplicate_placed_cut_keys(&self) -> bool {
@@ -1158,7 +1267,7 @@ impl PackingBackend for BaselineGuillotineBackend {
     }
 
     fn insert(bin: &mut Self::Bin, cut: &CutInstance, heuristic: Self::Heuristic) -> bool {
-        bin.try_insert(cut, heuristic)
+        cut_allowed_on_stock(cut, &bin.stock) && bin.try_insert(cut, heuristic)
     }
 
     fn clone_stock_instance(bin: &Self::Bin) -> StockInstance {
@@ -1199,9 +1308,9 @@ struct GuillotineSheet {
     kerf_width: u32,
     free_rects: Vec<Rect>,
     placed_pieces: Vec<PlacedPiece>,
-    // Transitional Phase-3 state: kept only while every chosen free rect still
-    // corresponds to a real free leaf. If legacy FreeRect merging creates a
-    // synthetic search rect, this is set to None instead of carrying a false guide.
+    // Incremental cutting plan, valid while every chosen free rect is a real free leaf. Merging
+    // free rects can produce placements this tree cannot describe; it is then set to None and
+    // the guide is rebuilt from the final layout instead.
     slicing_tree: Option<GuillotineSliceNode>,
 }
 
@@ -1224,7 +1333,7 @@ impl GuillotineSheet {
     }
 
     fn try_insert(&mut self, cut: &CutInstance, heuristic: BaselineGuillotineHeuristic) -> bool {
-        let Some((free_index, free_rect, fit)) = self
+        let mut options = self
             .free_rects
             .iter()
             .copied()
@@ -1234,9 +1343,14 @@ impl GuillotineSheet {
                     .into_iter()
                     .map(move |fit| (index, free_rect, fit))
             })
-            .min_by_key(|(_, free_rect, fit)| {
-                free_rect_choice_score(*free_rect, fit.rect, heuristic.rect_choice)
-            })
+            .collect::<Vec<_>>();
+        // Stable sort keeps the first of equally scored options, like `min_by_key`.
+        options.sort_by_key(|(_, free_rect, fit)| {
+            free_rect_choice_score(*free_rect, fit.rect, heuristic.rect_choice)
+        });
+        let Some((free_index, free_rect, fit)) = options
+            .into_iter()
+            .find(|(_, free_rect, fit)| self.placement_stays_cuttable(*free_rect, fit, cut))
         else {
             return false;
         };
@@ -1256,7 +1370,6 @@ impl GuillotineSheet {
                 self.slicing_tree = None;
             }
         }
-        self.merge_free_rects_and_invalidate_slicing_tree();
         self.placed_pieces.push(PlacedPiece {
             cut_id: cut.cut_id,
             instance: cut.instance,
@@ -1264,7 +1377,64 @@ impl GuillotineSheet {
             pattern: fit.pattern,
             rotated: fit.rotated,
         });
+        if self.slicing_tree.is_none() {
+            self.rebuild_slicing_tree_from_layout();
+        }
+        self.merge_free_rects();
         true
+    }
+
+    /// After a placement the incremental tree could not describe (one into a merged free rect),
+    /// derive a fresh cutting plan from the layout and continue from its free leaves, so later
+    /// placements into those leaves need no cuttability check.
+    fn rebuild_slicing_tree_from_layout(&mut self) {
+        let pieces = self.placed_pieces.iter().collect::<Vec<_>>();
+        if let Some(guide) = guide::guillotine_guide(self.stock_rect(), &pieces, self.kerf_width) {
+            let tree = GuillotineSliceNode::from(&guide);
+            self.free_rects = tree.free_leaf_rects();
+            self.slicing_tree = Some(tree);
+        }
+    }
+
+    /// Placements into real free leaves of the slicing tree are cuttable by construction. Any
+    /// other free rect comes from merging, so the whole sheet is checked for an edge-to-edge
+    /// cutting order before such a placement is accepted.
+    fn placement_stays_cuttable(
+        &self,
+        free_rect: Rect,
+        fit: &FitResult,
+        cut: &CutInstance,
+    ) -> bool {
+        if self
+            .slicing_tree
+            .as_ref()
+            .is_some_and(|tree| tree.has_free_leaf(free_rect))
+        {
+            return true;
+        }
+
+        let candidate = PlacedPiece {
+            cut_id: cut.cut_id,
+            instance: cut.instance,
+            rect: fit.rect,
+            pattern: fit.pattern,
+            rotated: fit.rotated,
+        };
+        let pieces = self
+            .placed_pieces
+            .iter()
+            .chain(std::iter::once(&candidate))
+            .collect::<Vec<_>>();
+        guide::guillotine_guide(self.stock_rect(), &pieces, self.kerf_width).is_some()
+    }
+
+    fn stock_rect(&self) -> Rect {
+        Rect {
+            x: 0,
+            y: 0,
+            width: self.stock.width,
+            length: self.stock.length,
+        }
     }
 
     #[cfg(test)]
@@ -1357,20 +1527,22 @@ impl GuillotineSheet {
         merged_at_least_once
     }
 
-    fn merge_free_rects_and_invalidate_slicing_tree(&mut self) {
-        if self.merge_free_rects() {
-            self.slicing_tree = None;
-        }
-    }
-
     fn into_solution_sheet(self) -> SolutionSheet {
+        let cutting_guide = match &self.slicing_tree {
+            Some(tree) => Some(GuideSliceNode::from(tree)),
+            None => {
+                let pieces = self.placed_pieces.iter().collect::<Vec<_>>();
+                guide::guillotine_guide(self.stock_rect(), &pieces, self.kerf_width)
+            }
+        };
+
         SolutionSheet {
             stock_id: self.stock.stock_id,
             width: self.stock.width,
             length: self.stock.length,
             placed_pieces: self.placed_pieces,
             waste: self.free_rects,
-            cutting_guide: self.slicing_tree.as_ref().map(GuideSliceNode::from),
+            cutting_guide,
         }
     }
 }
@@ -1414,6 +1586,19 @@ impl GuillotineSliceNode {
         }
     }
 
+    fn has_free_leaf(&self, target: Rect) -> bool {
+        match self {
+            Self::Cut { first, second, .. } => {
+                first.has_free_leaf(target) || second.has_free_leaf(target)
+            }
+            Self::Leaf {
+                rect,
+                kind: GuillotineLeafKind::Free,
+            } => *rect == target,
+            Self::Leaf { .. } => false,
+        }
+    }
+
     fn replace_free_leaf(&mut self, target: Rect, replacement: Self) -> bool {
         match self {
             Self::Cut { first, second, .. } => {
@@ -1444,7 +1629,6 @@ impl GuillotineSliceNode {
         }
     }
 
-    #[cfg(test)]
     fn free_leaf_rects(&self) -> Vec<Rect> {
         match self {
             Self::Cut { first, second, .. } => {
@@ -1473,6 +1657,27 @@ impl GuillotineSliceNode {
                 kind: GuillotineLeafKind::CutPiece { cut_id, instance },
             } => vec![(*cut_id, *instance, *rect)],
             Self::Leaf { .. } => Vec::new(),
+        }
+    }
+}
+
+impl From<&GuideSliceNode> for GuillotineSliceNode {
+    fn from(node: &GuideSliceNode) -> Self {
+        match node {
+            GuideSliceNode::Cut { cut, first, second } => GuillotineSliceNode::cut(
+                *cut,
+                GuillotineSliceNode::from(first.as_ref()),
+                GuillotineSliceNode::from(second.as_ref()),
+            ),
+            GuideSliceNode::Leaf { rect, kind } => GuillotineSliceNode::Leaf {
+                rect: *rect,
+                kind: match *kind {
+                    GuideLeafKind::Waste => GuillotineLeafKind::Free,
+                    GuideLeafKind::CutPiece { cut_id, instance } => {
+                        GuillotineLeafKind::CutPiece { cut_id, instance }
+                    }
+                },
+            },
         }
     }
 }
@@ -1714,48 +1919,6 @@ fn free_rect_choice_score(
     }
 }
 
-fn merge_adjacent_rects(left: Rect, right: Rect, kerf_width: u32) -> Option<Rect> {
-    if left.x == right.x && left.width == right.width {
-        if left.y + left.length + kerf_width == right.y {
-            return Some(Rect {
-                x: left.x,
-                y: left.y,
-                width: left.width,
-                length: left.length + kerf_width + right.length,
-            });
-        }
-        if right.y + right.length + kerf_width == left.y {
-            return Some(Rect {
-                x: right.x,
-                y: right.y,
-                width: right.width,
-                length: right.length + kerf_width + left.length,
-            });
-        }
-    }
-
-    if left.y == right.y && left.length == right.length {
-        if left.x + left.width + kerf_width == right.x {
-            return Some(Rect {
-                x: left.x,
-                y: left.y,
-                width: left.width + kerf_width + right.width,
-                length: left.length,
-            });
-        }
-        if right.x + right.width + kerf_width == left.x {
-            return Some(Rect {
-                x: right.x,
-                y: right.y,
-                width: right.width + kerf_width + left.width,
-                length: right.length,
-            });
-        }
-    }
-
-    None
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct NestedHeuristic {
     rect_choice: NestedRectChoice,
@@ -1834,7 +1997,7 @@ impl PackingBackend for NestedMaxRectsBackend {
     }
 
     fn insert(bin: &mut Self::Bin, cut: &CutInstance, heuristic: Self::Heuristic) -> bool {
-        bin.try_insert(cut, heuristic)
+        cut_allowed_on_stock(cut, &bin.stock) && bin.try_insert(cut, heuristic)
     }
 
     fn clone_stock_instance(bin: &Self::Bin) -> StockInstance {
@@ -2244,6 +2407,48 @@ fn split_free_rect_around_rect(free_rect: Rect, placed: Rect) -> Vec<Rect> {
     split_rects
 }
 
+fn merge_adjacent_rects(left: Rect, right: Rect, kerf_width: u32) -> Option<Rect> {
+    if left.x == right.x && left.width == right.width {
+        if left.y + left.length + kerf_width == right.y {
+            return Some(Rect {
+                x: left.x,
+                y: left.y,
+                width: left.width,
+                length: left.length + kerf_width + right.length,
+            });
+        }
+        if right.y + right.length + kerf_width == left.y {
+            return Some(Rect {
+                x: right.x,
+                y: right.y,
+                width: right.width,
+                length: right.length + kerf_width + left.length,
+            });
+        }
+    }
+
+    if left.y == right.y && left.length == right.length {
+        if left.x + left.width + kerf_width == right.x {
+            return Some(Rect {
+                x: left.x,
+                y: left.y,
+                width: left.width + kerf_width + right.width,
+                length: left.length,
+            });
+        }
+        if right.x + right.width + kerf_width == left.x {
+            return Some(Rect {
+                x: right.x,
+                y: right.y,
+                width: right.width + kerf_width + left.width,
+                length: right.length,
+            });
+        }
+    }
+
+    None
+}
+
 #[derive(Debug, Clone, Copy)]
 struct FitResult {
     rect: Rect,
@@ -2363,6 +2568,8 @@ struct StockInstance {
     width: u32,
     length: u32,
     pattern: PatternDirection,
+    /// A required instance must hold at least one cut in every valid candidate.
+    required: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -2373,16 +2580,17 @@ struct CutInstance {
     length: u32,
     pattern: PatternDirection,
     can_rotate: bool,
+    assigned_stock: Option<PieceId>,
 }
 
 fn expand_project(project: &Project) -> Result<ProblemInstance, OptimizeError> {
     let mut stock = Vec::new();
     let mut cuts = Vec::new();
 
-    for stock_piece in &project.stock_pieces {
-        if stock_piece.width == 0 || stock_piece.length == 0 {
+    for stock_piece in project.stock_pieces.iter().filter(|stock| stock.enabled) {
+        if stock_piece.usable_width() == 0 || stock_piece.usable_length() == 0 {
             return Err(OptimizeError::InvalidProject(format!(
-                "stock piece {:?} has zero width or length",
+                "stock piece {:?} has zero usable width or length",
                 stock_piece.id
             )));
         }
@@ -2398,14 +2606,15 @@ fn expand_project(project: &Project) -> Result<ProblemInstance, OptimizeError> {
             stock.push(StockInstance {
                 stock_id: stock_piece.id,
                 instance,
-                width: stock_piece.width,
-                length: stock_piece.length,
+                width: stock_piece.usable_width(),
+                length: stock_piece.usable_length(),
                 pattern: stock_piece.pattern,
+                required: stock_piece.required,
             });
         }
     }
 
-    for cut_piece in &project.cut_pieces {
+    for cut_piece in project.cut_pieces.iter().filter(|cut| cut.enabled) {
         if cut_piece.width == 0 || cut_piece.length == 0 {
             return Err(OptimizeError::InvalidProject(format!(
                 "cut piece {:?} has zero width or length",
@@ -2428,6 +2637,7 @@ fn expand_project(project: &Project) -> Result<ProblemInstance, OptimizeError> {
                 length: cut_piece.length,
                 pattern: cut_piece.pattern,
                 can_rotate: cut_piece.can_rotate,
+                assigned_stock: cut_piece.assigned_stock,
             });
         }
     }
@@ -2479,6 +2689,7 @@ mod tests {
                 initial: config.clone(),
                 ..PopulationPipelineConfig::default()
             },
+            SearchConfig::disabled(),
             LayoutKind::Guillotine,
         )
     }
@@ -2531,6 +2742,10 @@ mod tests {
             length: 2000,
             quantity,
             pattern: PatternDirection::None,
+            enabled: true,
+            offset_width: 0,
+            offset_length: 0,
+            required: false,
         }
     }
 
@@ -2543,6 +2758,8 @@ mod tests {
             quantity,
             pattern: PatternDirection::ParallelToWidth,
             can_rotate: false,
+            assigned_stock: None,
+            enabled: true,
         }
     }
 
@@ -2553,6 +2770,10 @@ mod tests {
             length,
             quantity: Some(quantity),
             pattern: PatternDirection::None,
+            enabled: true,
+            offset_width: 0,
+            offset_length: 0,
+            required: false,
         }
     }
 
@@ -2565,6 +2786,8 @@ mod tests {
             quantity,
             pattern: PatternDirection::None,
             can_rotate: false,
+            assigned_stock: None,
+            enabled: true,
         }
     }
 
@@ -2576,6 +2799,7 @@ mod tests {
                 width,
                 length,
                 pattern: PatternDirection::None,
+                required: false,
             },
             kerf_width,
         )
@@ -2589,6 +2813,7 @@ mod tests {
                 width: 300,
                 length: 300,
                 pattern: PatternDirection::None,
+                required: false,
             },
             0,
         );
@@ -2604,6 +2829,7 @@ mod tests {
             length,
             pattern: PatternDirection::None,
             can_rotate: false,
+            assigned_stock: None,
         }
     }
 
@@ -2615,6 +2841,7 @@ mod tests {
             length,
             pattern: PatternDirection::None,
             can_rotate: false,
+            assigned_stock: None,
         }
     }
 
@@ -2782,6 +3009,10 @@ mod tests {
             length,
             quantity: Some(1),
             pattern,
+            enabled: true,
+            offset_width: 0,
+            offset_length: 0,
+            required: false,
         }
     }
 
@@ -2800,6 +3031,8 @@ mod tests {
             quantity: 1,
             pattern,
             can_rotate,
+            assigned_stock: None,
+            enabled: true,
         }
     }
 
@@ -4882,7 +5115,7 @@ mod tests {
     }
 
     #[test]
-    fn optimizer_config_balanced_can_improve_fast_effort() {
+    fn optimizer_config_fast_finds_single_sheet_and_balanced_is_not_worse() {
         let mut project = project(
             vec![stock_with_size(1, 103, 100, 2)],
             vec![cut_with_size(10, 60, 60, 1), cut_with_size(20, 40, 100, 1)],
@@ -4896,9 +5129,10 @@ mod tests {
             .optimize_with_config(&project, OptimizerConfig::new(OptimizerEffort::Balanced))
             .expect("balanced optimizer should produce a solution");
 
-        assert_eq!(fast_solution.sheets.len(), 2);
+        // Diversified construction lets even Fast find the one-sheet layout.
+        assert_eq!(fast_solution.sheets.len(), 1);
         assert_eq!(balanced_solution.sheets.len(), 1);
-        assert!(balanced_solution.fitness > fast_solution.fitness);
+        assert!(balanced_solution.fitness >= fast_solution.fitness);
     }
 
     #[test]
@@ -4933,6 +5167,7 @@ mod tests {
         let genetic_solution = optimize_population_pipeline::<BaselineGuillotineBackend>(
             &instance,
             &PopulationPipelineConfig::genetic_default(0),
+            SearchConfig::disabled(),
             LayoutKind::Guillotine,
         )
         .expect("private genetic pipeline should produce a solution");
@@ -5078,6 +5313,7 @@ mod tests {
         let pipeline_solution = optimize_population_pipeline::<BaselineGuillotineBackend>(
             &instance,
             &pipeline_config,
+            SearchConfig::disabled(),
             LayoutKind::Guillotine,
         )
         .expect("explicit private pipeline should produce a solution");
@@ -5470,6 +5706,7 @@ mod tests {
                 width: 2440,
                 length: 1220,
                 pattern: PatternDirection::None,
+                required: false,
             },
             1,
         );
@@ -5716,69 +5953,7 @@ mod tests {
     }
 
     #[test]
-    fn guillotine_solution_sheet_omits_invalidated_cutting_guide() {
-        let mut sheet = guillotine_sheet_with_size(100, 100, 1);
-        sheet.free_rects = vec![
-            Rect {
-                x: 0,
-                y: 0,
-                width: 100,
-                length: 40,
-            },
-            Rect {
-                x: 0,
-                y: 41,
-                width: 100,
-                length: 59,
-            },
-        ];
-        sheet.merge_free_rects_and_invalidate_slicing_tree();
-
-        let solution_sheet = sheet.into_solution_sheet();
-
-        assert_eq!(solution_sheet.cutting_guide, None);
-    }
-
-    #[test]
-    fn nested_solution_sheet_has_no_guillotine_cutting_guide() {
-        let sheet = nested_sheet_with_free_rects(vec![Rect {
-            x: 0,
-            y: 0,
-            width: 100,
-            length: 100,
-        }]);
-
-        let solution_sheet = sheet.into_solution_sheet();
-
-        assert_eq!(solution_sheet.cutting_guide, None);
-    }
-
-    #[test]
-    fn guillotine_slicing_tree_leaves_match_sheet_state_while_representable() {
-        let mut sheet = guillotine_sheet_with_size(100, 80, 3);
-        let first_cut = cut_instance_with_id(10, 60, 50);
-        let second_cut = cut_instance_with_id(11, 20, 20);
-
-        assert!(sheet.try_insert(&first_cut, BaselineGuillotineBackend::default_heuristic()));
-        assert!(sheet.try_insert(&second_cut, BaselineGuillotineBackend::default_heuristic()));
-
-        let tree = sheet
-            .slicing_tree
-            .as_ref()
-            .expect("unmerged inserts should keep the slicing tree representable");
-
-        assert_eq!(
-            sorted_rects(tree.free_leaf_rects()),
-            sorted_rects(sheet.free_rects.clone())
-        );
-        assert_eq!(
-            sorted_cut_piece_leaf_records(tree.cut_piece_leaf_records()),
-            placed_piece_records(&sheet.placed_pieces)
-        );
-    }
-
-    #[test]
-    fn guillotine_free_rect_merge_invalidates_slicing_tree() {
+    fn guillotine_merge_keeps_slicing_tree_as_cutting_plan() {
         let mut sheet = guillotine_sheet_with_size(100, 100, 1);
         sheet.free_rects = vec![
             Rect {
@@ -5795,9 +5970,7 @@ mod tests {
             },
         ];
 
-        assert!(sheet.slicing_tree.is_some());
-
-        sheet.merge_free_rects_and_invalidate_slicing_tree();
+        assert!(sheet.merge_free_rects());
 
         assert_eq!(
             sheet.free_rects,
@@ -5808,7 +5981,35 @@ mod tests {
                 length: 100,
             }]
         );
-        assert_eq!(sheet.slicing_tree, None);
+        assert!(sheet.slicing_tree.is_some());
+    }
+
+    #[test]
+    fn guillotine_placement_into_merged_rect_is_validated_and_keeps_a_guide() {
+        let mut sheet = guillotine_sheet_with_size(100, 100, 0);
+        let heuristic = BaselineGuillotineBackend::default_heuristic();
+
+        // A and B stack on the left; their right-hand leftovers merge across the first cut.
+        assert!(sheet.try_insert(&cut_instance_with_id(1, 50, 30), heuristic));
+        assert!(sheet.try_insert(&cut_instance_with_id(2, 50, 70), heuristic));
+        assert!(sheet.free_rects.contains(&Rect {
+            x: 50,
+            y: 0,
+            width: 50,
+            length: 100,
+        }));
+
+        // C only fits the merged rect. It crosses the tree's first cut but the layout is still
+        // cuttable (vertical cut first), so it is accepted and the plan is rebuilt.
+        assert!(sheet.try_insert(&cut_instance_with_id(3, 50, 100), heuristic));
+        assert!(sheet.slicing_tree.is_some());
+
+        let solution_sheet = sheet.into_solution_sheet();
+        let guide = solution_sheet
+            .cutting_guide
+            .as_ref()
+            .expect("validated layout has a cutting guide");
+        assert_eq!(render_cut_piece_leaf_records(guide).len(), 3);
     }
 
     #[test]
@@ -5858,6 +6059,44 @@ mod tests {
                 width: 100,
                 length: 100,
             })
+        );
+    }
+
+    #[test]
+    fn nested_solution_sheet_has_no_guillotine_cutting_guide() {
+        let sheet = nested_sheet_with_free_rects(vec![Rect {
+            x: 0,
+            y: 0,
+            width: 100,
+            length: 100,
+        }]);
+
+        let solution_sheet = sheet.into_solution_sheet();
+
+        assert_eq!(solution_sheet.cutting_guide, None);
+    }
+
+    #[test]
+    fn guillotine_slicing_tree_leaves_match_sheet_state_while_representable() {
+        let mut sheet = guillotine_sheet_with_size(100, 80, 3);
+        let first_cut = cut_instance_with_id(10, 60, 50);
+        let second_cut = cut_instance_with_id(11, 20, 20);
+
+        assert!(sheet.try_insert(&first_cut, BaselineGuillotineBackend::default_heuristic()));
+        assert!(sheet.try_insert(&second_cut, BaselineGuillotineBackend::default_heuristic()));
+
+        let tree = sheet
+            .slicing_tree
+            .as_ref()
+            .expect("unmerged inserts should keep the slicing tree representable");
+
+        assert_eq!(
+            sorted_rects(tree.free_leaf_rects()),
+            sorted_rects(sheet.free_rects.clone())
+        );
+        assert_eq!(
+            sorted_cut_piece_leaf_records(tree.cut_piece_leaf_records()),
+            placed_piece_records(&sheet.placed_pieces)
         );
     }
 
@@ -5957,6 +6196,7 @@ mod tests {
                 width: 103,
                 length: 50,
                 pattern: PatternDirection::None,
+                required: false,
             }]
         );
         assert_eq!(

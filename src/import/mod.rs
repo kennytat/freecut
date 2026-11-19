@@ -231,6 +231,8 @@ fn csv_piece_from_record(
                 quantity,
                 pattern,
                 can_rotate,
+                assigned_stock: None,
+                enabled: true,
             }))
         }
         CsvPieceType::Stock => Ok(CsvPiece::Stock(StockPiece {
@@ -239,6 +241,10 @@ fn csv_piece_from_record(
             length,
             quantity: Some(quantity),
             pattern,
+            enabled: true,
+            offset_width: 0,
+            offset_length: 0,
+            required: false,
         })),
     }
 }
