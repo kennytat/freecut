@@ -26,21 +26,27 @@ pub(super) struct SearchConfig {
     repack_iterations: usize,
     /// Stop repacking after this many consecutive iterations without an improvement.
     stagnation_limit: usize,
+    /// Restarts of the repair walk when no construction places every cut.
+    repair_rounds: usize,
     seed: u64,
 }
 
+/// Repair walk length per round before restarting from the initial candidate.
+const REPAIR_ROUND_ITERATIONS: usize = 2_500;
+
 impl SearchConfig {
     pub(super) const fn from_effort(effort: OptimizerEffort) -> Self {
-        let (repack_iterations, stagnation_limit) = match effort {
-            OptimizerEffort::Fast => (0, 0),
-            OptimizerEffort::Balanced => (400, 150),
-            OptimizerEffort::Thorough => (4_000, 600),
+        let (repack_iterations, stagnation_limit, repair_rounds) = match effort {
+            OptimizerEffort::Fast => (0, 0, 2),
+            OptimizerEffort::Balanced => (400, 150, 8),
+            OptimizerEffort::Thorough => (4_000, 600, 16),
         };
 
         Self {
             diversified_construction: true,
             repack_iterations,
             stagnation_limit,
+            repair_rounds,
             seed: 0x5EED,
         }
     }
@@ -51,6 +57,7 @@ impl SearchConfig {
             diversified_construction: false,
             repack_iterations: 0,
             stagnation_limit: 0,
+            repair_rounds: 0,
             seed: 0,
         }
     }
@@ -114,10 +121,13 @@ where
         Vec::new()
     };
 
+    // Start from the least infeasible candidate when no construction places every cut: tight
+    // instances (many required sheets, high fill) often miss by a cut or two, and repacking can
+    // still find room for them.
     let best = population
         .into_iter()
         .chain(constructed)
-        .filter(Candidate::is_valid)
+        .filter(Candidate::is_consistent)
         .reduce(|best, candidate| {
             if compare_quality(&candidate, &best) == Ordering::Greater {
                 candidate
@@ -126,7 +136,54 @@ where
             }
         })?;
 
+    let best = if best.is_valid() {
+        best
+    } else {
+        repair(&best, instance, config)?
+    };
+
     Some(repack_search(best, instance, config))
+}
+
+/// Walks from an infeasible candidate towards one that places every cut. Repacks that keep the
+/// candidate equally infeasible are accepted too, so the walk can cross the plateau of layouts
+/// that miss the same cuts; each round restarts from `start` with a fresh seed.
+fn repair<B>(
+    start: &Candidate<B>,
+    instance: &ProblemInstance,
+    config: SearchConfig,
+) -> Option<Candidate<B>>
+where
+    B: PackingBackend,
+{
+    if start.bins.len() < 2 {
+        return None;
+    }
+
+    let heuristics = B::heuristic_variants();
+    let mixed_stock = has_mixed_stock_sizes(&instance.stock);
+
+    for round in 0..config.repair_rounds {
+        let mut prng = TinyPrng::new(config.seed.wrapping_add(round as u64));
+        let mut current = start.clone_candidate();
+
+        for _ in 0..REPAIR_ROUND_ITERATIONS {
+            let subset = choose_subset(&current, &mut prng);
+            let recipe = random_recipe(&heuristics, mixed_stock, &mut prng);
+            let Some(candidate) = repack_subset(&current, &subset, instance, &recipe, &mut prng)
+            else {
+                continue;
+            };
+            if candidate.infeasibility() <= current.infeasibility() {
+                current = candidate;
+                if current.is_valid() {
+                    return Some(current);
+                }
+            }
+        }
+    }
+
+    None
 }
 
 fn diversified_candidates<B>(instance: &ProblemInstance) -> Vec<Candidate<B>>
@@ -286,6 +343,27 @@ where
         }
     }
 
+    /// How far the candidate is from valid: unplaced cuts, their area, then empty required
+    /// sheets. All zero for a valid candidate; lower is better.
+    fn infeasibility(&self) -> (usize, u64, usize) {
+        let empty_required = self
+            .available_stock
+            .stock
+            .iter()
+            .filter(|stock| stock.required)
+            .count()
+            + self
+                .bins
+                .iter()
+                .filter(|bin| B::is_unused_required(bin))
+                .count();
+        (
+            self.unused_cuts.len(),
+            super::total_cut_area(&self.unused_cuts),
+            empty_required,
+        )
+    }
+
     /// Sum of squared sheet fill: higher when waste is concentrated on fewer sheets.
     fn fill_concentration(&self) -> f64 {
         self.bins
@@ -298,15 +376,15 @@ where
     }
 }
 
-/// `Greater` means `left` is the better candidate.
+/// `Greater` means `left` is the better candidate. Any feasible candidate beats any infeasible one.
 fn compare_quality<B>(left: &Candidate<B>, right: &Candidate<B>) -> Ordering
 where
     B: PackingBackend,
 {
     right
-        .bins
-        .len()
-        .cmp(&left.bins.len())
+        .infeasibility()
+        .cmp(&left.infeasibility())
+        .then_with(|| right.bins.len().cmp(&left.bins.len()))
         .then_with(|| right.used_stock_area().cmp(&left.used_stock_area()))
         .then_with(|| {
             left.fill_concentration()
@@ -335,20 +413,7 @@ where
         since_improvement += 1;
 
         let subset = choose_subset(&best, &mut prng);
-        let recipe = Recipe {
-            order: CUT_ORDERS[prng.next_index(CUT_ORDERS.len())],
-            heuristic: heuristics[prng.next_index(heuristics.len())],
-            bin_rule: if prng.next_index(2) == 0 {
-                BinRule::FirstFit
-            } else {
-                BinRule::FullestFirst
-            },
-            stock_order: if mixed_stock && prng.next_index(2) == 1 {
-                StockOrder::SmallestFirst
-            } else {
-                StockOrder::LargestFirst
-            },
-        };
+        let recipe = random_recipe(&heuristics, mixed_stock, &mut prng);
 
         if let Some(candidate) = repack_subset(&best, &subset, instance, &recipe, &mut prng) {
             if compare_quality(&candidate, &best) == Ordering::Greater {
@@ -361,11 +426,55 @@ where
     best
 }
 
-/// Picks one of the emptiest sheets plus one to three others.
+fn random_recipe<H: Copy>(heuristics: &[H], mixed_stock: bool, prng: &mut TinyPrng) -> Recipe<H> {
+    Recipe {
+        order: CUT_ORDERS[prng.next_index(CUT_ORDERS.len())],
+        heuristic: heuristics[prng.next_index(heuristics.len())],
+        bin_rule: if prng.next_index(2) == 0 {
+            BinRule::FirstFit
+        } else {
+            BinRule::FullestFirst
+        },
+        stock_order: if mixed_stock && prng.next_index(2) == 1 {
+            StockOrder::SmallestFirst
+        } else {
+            StockOrder::LargestFirst
+        },
+    }
+}
+
+/// Picks one of the emptiest sheets plus one to three others. While cuts are unplaced, the first
+/// pick is instead a sheet the largest unplaced cut fits on, so the repack can make room for it.
 fn choose_subset<B>(candidate: &Candidate<B>, prng: &mut TinyPrng) -> Vec<usize>
 where
     B: PackingBackend,
 {
+    if let Some(cut) = candidate
+        .unused_cuts
+        .iter()
+        .max_by_key(|cut| u64::from(cut.width) * u64::from(cut.length))
+    {
+        let mut hosts = Vec::new();
+        let mut others = Vec::new();
+        for index in 0..candidate.bins.len() {
+            let stock = B::clone_stock_instance(&candidate.bins[index]);
+            if super::cut_fits_stock(cut, &stock) {
+                hosts.push(index);
+            } else {
+                others.push(index);
+            }
+        }
+        if !hosts.is_empty() {
+            let mut subset = vec![hosts.remove(prng.next_index(hosts.len()))];
+            others.extend(hosts);
+            let extra = 1 + prng.next_index(others.len().min(3));
+            for _ in 0..extra.min(others.len()) {
+                subset.push(others.remove(prng.next_index(others.len())));
+            }
+            return subset;
+        }
+    }
+
     let mut by_fill = (0..candidate.bins.len()).collect::<Vec<_>>();
     by_fill.sort_by(|&left, &right| {
         B::fitness(&candidate.bins[left])
@@ -398,7 +507,10 @@ where
         .iter()
         .flat_map(|&index| B::placed_cut_keys(&candidate.bins[index]))
         .collect::<Vec<_>>();
-    let mut cuts = ordered_cuts(&candidate.cuts_for_keys(&keys)?, recipe.order);
+    // Unplaced cuts join every repack so an infeasible candidate can work them in.
+    let mut cuts = candidate.cuts_for_keys(&keys)?;
+    cuts.extend(candidate.unused_cuts.iter().cloned());
+    let mut cuts = ordered_cuts(&cuts, recipe.order);
     perturb(&mut cuts, prng);
 
     let mut stock = candidate.available_stock.stock.clone();
@@ -415,7 +527,7 @@ where
         instance.kerf_width,
         recipe,
     );
-    if !repacked.unused_cuts.is_empty() {
+    if repacked.unused_cuts.len() > candidate.unused_cuts.len() {
         return None;
     }
 
@@ -427,8 +539,9 @@ where
     }
     result.bins.extend(repacked.bins);
     result.available_stock = repacked.available_stock;
+    result.unused_cuts = repacked.unused_cuts;
 
-    result.is_valid().then_some(result)
+    result.is_consistent().then_some(result)
 }
 
 /// Swaps a few neighbouring cuts so repeated repacks explore orders near the sorted one.

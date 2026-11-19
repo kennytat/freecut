@@ -1,0 +1,368 @@
+{
+  "version": 2,
+  "project": {
+    "name": "Untitled Freecut Project",
+    "stock_pieces": [
+      {
+        "id": 2,
+        "width": 73600000,
+        "length": 32000000,
+        "quantity": 1,
+        "pattern": "None",
+        "enabled": true,
+        "offset_width": 0,
+        "offset_length": 0,
+        "required": true
+      },
+      {
+        "id": 3,
+        "width": 102400000,
+        "length": 19200000,
+        "quantity": 1,
+        "pattern": "None",
+        "enabled": true,
+        "offset_width": 0,
+        "offset_length": 3840000,
+        "required": true
+      },
+      {
+        "id": 4,
+        "width": 102400000,
+        "length": 19200000,
+        "quantity": 1,
+        "pattern": "None",
+        "enabled": true,
+        "offset_width": 0,
+        "offset_length": 3840000,
+        "required": true
+      },
+      {
+        "id": 5,
+        "width": 104320000,
+        "length": 38400000,
+        "quantity": 1,
+        "pattern": "None",
+        "enabled": true,
+        "offset_width": 0,
+        "offset_length": 6400000,
+        "required": true
+      },
+      {
+        "id": 6,
+        "width": 125760000,
+        "length": 38400000,
+        "quantity": 1,
+        "pattern": "None",
+        "enabled": true,
+        "offset_width": 6400000,
+        "offset_length": 0,
+        "required": true
+      },
+      {
+        "id": 23,
+        "width": 125760000,
+        "length": 38400000,
+        "quantity": 1,
+        "pattern": "None",
+        "enabled": true,
+        "offset_width": 6400000,
+        "offset_length": 0,
+        "required": true
+      },
+      {
+        "id": 28,
+        "width": 104320000,
+        "length": 53120000,
+        "quantity": 1,
+        "pattern": "None",
+        "enabled": true,
+        "offset_width": 0,
+        "offset_length": 0,
+        "required": true
+      },
+      {
+        "id": 29,
+        "width": 156160000,
+        "length": 78080000,
+        "quantity": 1,
+        "pattern": "None",
+        "enabled": true,
+        "offset_width": 0,
+        "offset_length": 0,
+        "required": true
+      },
+      {
+        "id": 30,
+        "width": 156160000,
+        "length": 78080000,
+        "quantity": 1,
+        "pattern": "None",
+        "enabled": true,
+        "offset_width": 0,
+        "offset_length": 0,
+        "required": true
+      },
+      {
+        "id": 33,
+        "width": 156160000,
+        "length": 78080000,
+        "quantity": 1,
+        "pattern": "None",
+        "enabled": true,
+        "offset_width": 0,
+        "offset_length": 0,
+        "required": true
+      }
+    ],
+    "cut_pieces": [
+      {
+        "id": 8,
+        "label": "cut-8",
+        "width": 6400000,
+        "length": 35840000,
+        "quantity": 2,
+        "pattern": "None",
+        "can_rotate": true,
+        "assigned_stock": null,
+        "enabled": true
+      },
+      {
+        "id": 9,
+        "label": "cut-9",
+        "width": 6400000,
+        "length": 100160000,
+        "quantity": 2,
+        "pattern": "None",
+        "can_rotate": true,
+        "assigned_stock": null,
+        "enabled": true
+      },
+      {
+        "id": 10,
+        "label": "cut-10",
+        "width": 6400000,
+        "length": 62080000,
+        "quantity": 1,
+        "pattern": "None",
+        "can_rotate": true,
+        "assigned_stock": null,
+        "enabled": true
+      },
+      {
+        "id": 11,
+        "label": "cut-11",
+        "width": 6400000,
+        "length": 64640000,
+        "quantity": 1,
+        "pattern": "None",
+        "can_rotate": true,
+        "assigned_stock": null,
+        "enabled": true
+      },
+      {
+        "id": 12,
+        "label": "cut-12",
+        "width": 38400000,
+        "length": 62080000,
+        "quantity": 1,
+        "pattern": "None",
+        "can_rotate": true,
+        "assigned_stock": null,
+        "enabled": true
+      },
+      {
+        "id": 13,
+        "label": "cut-13",
+        "width": 37120000,
+        "length": 62080000,
+        "quantity": 1,
+        "pattern": "None",
+        "can_rotate": true,
+        "assigned_stock": null,
+        "enabled": true
+      },
+      {
+        "id": 14,
+        "label": "cut-14",
+        "width": 38400000,
+        "length": 64640000,
+        "quantity": 1,
+        "pattern": "None",
+        "can_rotate": true,
+        "assigned_stock": null,
+        "enabled": true
+      },
+      {
+        "id": 15,
+        "label": "cut-15",
+        "width": 38400000,
+        "length": 125760000,
+        "quantity": 2,
+        "pattern": "None",
+        "can_rotate": true,
+        "assigned_stock": null,
+        "enabled": true
+      },
+      {
+        "id": 16,
+        "label": "cut-16",
+        "width": 37120000,
+        "length": 125760000,
+        "quantity": 2,
+        "pattern": "None",
+        "can_rotate": true,
+        "assigned_stock": null,
+        "enabled": true
+      },
+      {
+        "id": 17,
+        "label": "cut-17",
+        "width": 37120000,
+        "length": 78080000,
+        "quantity": 1,
+        "pattern": "None",
+        "can_rotate": true,
+        "assigned_stock": null,
+        "enabled": true
+      },
+      {
+        "id": 18,
+        "label": "cut-18",
+        "width": 38400000,
+        "length": 102400000,
+        "quantity": 1,
+        "pattern": "None",
+        "can_rotate": true,
+        "assigned_stock": null,
+        "enabled": true
+      },
+      {
+        "id": 19,
+        "label": "cut-19",
+        "width": 38400000,
+        "length": 25600000,
+        "quantity": 1,
+        "pattern": "None",
+        "can_rotate": true,
+        "assigned_stock": null,
+        "enabled": true
+      },
+      {
+        "id": 20,
+        "label": "cut-20",
+        "width": 37120000,
+        "length": 24640000,
+        "quantity": 2,
+        "pattern": "None",
+        "can_rotate": true,
+        "assigned_stock": null,
+        "enabled": true
+      },
+      {
+        "id": 21,
+        "label": "cut-21",
+        "width": 4480000,
+        "length": 62080000,
+        "quantity": 2,
+        "pattern": "None",
+        "can_rotate": true,
+        "assigned_stock": null,
+        "enabled": true
+      },
+      {
+        "id": 22,
+        "label": "cut-22",
+        "width": 19200000,
+        "length": 25600000,
+        "quantity": 2,
+        "pattern": "None",
+        "can_rotate": true,
+        "assigned_stock": null,
+        "enabled": true
+      },
+      {
+        "id": 24,
+        "label": "cut-24",
+        "width": 32000000,
+        "length": 64000000,
+        "quantity": 1,
+        "pattern": "None",
+        "can_rotate": true,
+        "assigned_stock": null,
+        "enabled": true
+      },
+      {
+        "id": 25,
+        "label": "cut-25",
+        "width": 38400000,
+        "length": 92800000,
+        "quantity": 1,
+        "pattern": "None",
+        "can_rotate": true,
+        "assigned_stock": null,
+        "enabled": true
+      },
+      {
+        "id": 26,
+        "label": "cut-26",
+        "width": 38080000,
+        "length": 102400000,
+        "quantity": 1,
+        "pattern": "None",
+        "can_rotate": true,
+        "assigned_stock": null,
+        "enabled": true
+      },
+      {
+        "id": 27,
+        "label": "cut-27",
+        "width": 6400000,
+        "length": 35840000,
+        "quantity": 4,
+        "pattern": "None",
+        "can_rotate": true,
+        "assigned_stock": null,
+        "enabled": true
+      },
+      {
+        "id": 34,
+        "label": "cut-34",
+        "width": 32000000,
+        "length": 64000000,
+        "quantity": 1,
+        "pattern": "None",
+        "can_rotate": true,
+        "assigned_stock": null,
+        "enabled": true
+      },
+      {
+        "id": 36,
+        "label": "cut-36",
+        "width": 25600000,
+        "length": 78080000,
+        "quantity": 1,
+        "pattern": "None",
+        "can_rotate": true,
+        "assigned_stock": null,
+        "enabled": true
+      },
+      {
+        "id": 37,
+        "label": "cut-37",
+        "width": 38080000,
+        "length": 38080000,
+        "quantity": 1,
+        "pattern": "None",
+        "can_rotate": true,
+        "assigned_stock": null,
+        "enabled": true
+      }
+    ],
+    "settings": {
+      "unit": "Millimeter",
+      "kerf_width": 128000,
+      "layout": "Guillotine"
+    }
+  },
+  "optimizer_effort": "Thorough"
+}

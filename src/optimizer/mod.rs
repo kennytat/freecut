@@ -1038,10 +1038,12 @@ where
     }
 
     fn is_valid(&self) -> bool {
-        self.unused_cuts.is_empty()
-            && !self.has_duplicate_placed_cut_keys()
-            && !self.has_unresolved_placed_cut_keys()
-            && !self.has_unused_required_stock()
+        self.unused_cuts.is_empty() && self.is_consistent() && !self.has_unused_required_stock()
+    }
+
+    /// Placed cuts are unique and resolvable, though some cuts may still be unplaced.
+    fn is_consistent(&self) -> bool {
+        !self.has_duplicate_placed_cut_keys() && !self.has_unresolved_placed_cut_keys()
     }
 
     fn has_unused_required_stock(&self) -> bool {

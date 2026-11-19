@@ -447,6 +447,38 @@ fn guillotine_thorough_is_independent_of_stock_input_order_for_issue_35() {
 }
 
 #[test]
+fn optimizer_assigns_cuts_when_every_required_sheet_must_be_filled_tightly() {
+    // All ten sheets are required and the cuts fill 93% of them; no greedy construction places
+    // every cut, so the search has to repair a near miss instead of reporting no solution.
+    let document = load_project_document_from_str(include_str!(
+        "fixtures/wardrobe-required-unassigned-v2.freecut.json"
+    ))
+    .expect("wardrobe fixture loads");
+    assert!(document
+        .project
+        .cut_pieces
+        .iter()
+        .all(|cut| cut.assigned_stock.is_none()));
+
+    for effort in [OptimizerEffort::Balanced, OptimizerEffort::Thorough] {
+        let solution = BaselineOptimizer
+            .optimize_with_config(&document.project, OptimizerConfig::new(effort))
+            .expect("optimizer should find a layout without manual stock assignment");
+
+        assert_eq!(solution.sheets.len(), 10);
+        assert_eq!(
+            solution
+                .sheets
+                .iter()
+                .map(|sheet| sheet.placed_pieces.len())
+                .sum::<usize>(),
+            32
+        );
+        assert_solution_within_bounds_and_non_overlapping(&solution);
+    }
+}
+
+#[test]
 fn fractional_inch_kerf_controls_exact_fit_for_all_layouts() {
     for layout in [LayoutKind::Guillotine, LayoutKind::Nested] {
         let exact = fractional_kerf_project(layout, "1/8");
